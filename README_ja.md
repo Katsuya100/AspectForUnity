@@ -228,7 +228,7 @@ public void SampleMethod(int parameter)
 
 ## パラメーターのバインディング
 ### 基本的なバインディング
-Adviceメソッドのパラメータに対象メソッドの引数名と同じ名前を付けることで、値をバインドできます。
+Adviceメソッドのパラメータに挿入先メソッドの引数名と同じ名前を付けることで、値をバインドできます。
 ```.cs
 [Advice(JoinPoint.Before)]
 [RegexPointcut(".*")]
@@ -238,7 +238,7 @@ public static void BeforeAdvice(int parameter1, string parameter2)
 }
 ```
 
-以下が注入先のメソッド
+以下が挿入先のメソッド
 ```.cs
 public class SampleClass
 {
