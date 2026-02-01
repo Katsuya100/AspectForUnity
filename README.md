@@ -1,4 +1,6 @@
 # AspectForUnity
+[“ú–{Œê](README_ja.md)
+
 ## Overview
 
 AspectForUnity provides Aspect-Oriented Programming (AOP) functionality to Unity projects.  
