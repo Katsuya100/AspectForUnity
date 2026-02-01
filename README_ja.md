@@ -33,12 +33,12 @@ ILPostProcessorを使用して、メソッドの前後に処理を挿入する�
 3. `https://github.com/Katsuya100/AspectForUnity.git?path=packages`と入力し[Add]をクリックする。
 
 #### うまくいかない場合
-上記方法は、gitがインストールされていない環境ではうまく動作しない場合があります。
-[Releases](https://github.com/Katsuya100/AspectForUnity/releases)から該当のバージョンの`com.katuusagi.aspectforunity.tgz`をダウンロードし
-[Package Manager > + > Add package from tarball...]を使ってインストールしてください。
+上記方法は、gitがインストールされていない環境ではうまく動作しない場合があります。  
+[Releases](https://github.com/Katsuya100/AspectForUnity/releases)から該当のバージョンの`com.katuusagi.aspectforunity.tgz`をダウンロードし  
+[Package Manager > + > Add package from tarball...]を使ってインストールしてください。  
 
 #### それでもうまくいかない場合
-[Releases](https://github.com/Katsuya100/AspectForUnity/releases)から該当のバージョンの`Katuusagi.AspectForUnity.unitypackage`をダウンロードし
+[Releases](https://github.com/Katsuya100/AspectForUnity/releases)から該当のバージョンの`Katuusagi.AspectForUnity.unitypackage`をダウンロードし  
 [Assets > Import Package > Custom Package]からプロジェクトにインポートしてください。
 
 ## 基本的な使い方
@@ -56,8 +56,8 @@ public class LoggingAspect
 ```
 
 ### 2. Adviceメソッドの実装
-アスペクトクラス内にAdviceメソッドを実装し、`Advice`属性とPointcut属性を付与します。
-下記サンプルでは後述の`RegexPointcut`を使用して、メソッド名に`TestMethod`を含むメソッドに対してアドバイスを適用しています。
+アスペクトクラス内にAdviceメソッドを実装し、`Advice`属性とPointcut属性を付与します。  
+下記サンプルでは後述の`RegexPointcut`を使用して、メソッド名に`TestMethod`を含むメソッドに対してアドバイスを適用しています。  
 ```.cs
 [Advice(JoinPoint.Before)]
 [RegexPointcut(".*TestMethod.*", PointcutNameFlag.MethodName)]
@@ -149,12 +149,12 @@ public static void AfterThrowingAdvice()
 
 ## Pointcut属性
 
-Pointcut属性は、Adviceメソッドが適用されるメソッドを指定します。
+Pointcut属性は、Adviceメソッドが適用されるメソッドを指定します。  
 複数条件を設定でき、AND条件でマッチングされます。
 
 ### RegexPointcut
 
-`メソッド識別名`という内部表現に対して、正規表現を使用してメソッドをマッチングします。
+`メソッド識別名`という内部表現に対して、正規表現を使用してメソッドをマッチングします。  
 `PointcutNameFlag` を組み合わせることで`メソッド識別名`に含まれる要素を指定できます。
 
 ※メソッド識別名の一例
@@ -173,9 +173,9 @@ Pointcut属性は、Adviceメソッドが適用されるメソッドを指定し
 
 ##### メソッド識別名構成例
 
-すべての要素が含まれる場合以下のように構成されます
-`AssemblyFamily.AssemblyName[assembly:AssemblyAttribute][module:ModuleAttribute][declaring:DeclaringAttribute][return:ReturnAttribute][MethodAttribute("AttributeParameter",Property="AttributeProperty")]public sealed override ReturnType DeclaringTypeName<[DeclaringGenericAttribute]TDeclaring>MethodName<[GenericAttribute]TMethod>([ParameterAttribute]ParameterType parameterName)`
-メソッド識別名の各要素は以下のように対応します。
+すべての要素が含まれる場合以下のように構成されます  
+`AssemblyFamily.AssemblyName[assembly:AssemblyAttribute][module:ModuleAttribute][declaring:DeclaringAttribute][return:ReturnAttribute][MethodAttribute("AttributeParameter",Property="AttributeProperty")]public sealed override ReturnType DeclaringTypeName<[DeclaringGenericAttribute]TDeclaring>MethodName<[GenericAttribute]TMethod>([ParameterAttribute]ParameterType parameterName)`  
+メソッド識別名の各要素は以下のように対応します。  
 
 
 ##### PointcutNameFlag オプション
