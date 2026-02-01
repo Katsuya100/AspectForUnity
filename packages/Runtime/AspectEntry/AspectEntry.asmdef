@@ -1,0 +1,17 @@
+{
+    "name": "AspectEntry",
+    "rootNamespace": "",
+    "references": [
+        "GUID:c70eb7601d69e4843a04844bb0c01de0",
+        "GUID:7185de3f380993a4da1fe5d0a4c79d11"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

@@ -1,0 +1,23 @@
+{
+    "name": "com.katuusagi.aspectforunity",
+    "displayName": "AspectForUnity",
+    "description": "A library for efficient aspect-oriented programming.",
+    "version": "1.0.0",
+    "unity": "6000.0",
+    "dependencies": {
+        "com.unity.nuget.mono-cecil": "1.11.4",
+        "com.unity.test-framework": "2.0.5",
+        "com.katuusagi.ilpostprocessorcommon": "2.5.0"
+    },
+    "keywords": [
+        "AOP",
+        "AspectOrientedProgramming",
+        "metaprogramming"
+    ],
+    "author": {
+        "name": "Katuusagi a.k.a Katsuya100"
+    },
+    "documentationUrl": "https://github.com/Katsuya100/AspectForUnity",
+    "changelogUrl": "https://github.com/Katsuya100/AspectForUnity/releases",
+    "licensesUrl": "https://github.com/Katsuya100/AspectForUnity/blob/ver1.0.0/LICENSE"
+}

@@ -1,0 +1,26 @@
+{
+    "name": "Unity.Katuusagi.AspectForUnity.Editor.CodeGen",
+    "rootNamespace": "Katuusagi.AspectForUnity.Editor",
+    "references": [
+        "GUID:138ab45cda308364ab074b9cb16664a2",
+        "GUID:c70eb7601d69e4843a04844bb0c01de0",
+        "GUID:cc698119c860f8a43b21cd2ddd1401ed",
+        "GUID:7185de3f380993a4da1fe5d0a4c79d11"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "Mono.Cecil.dll",
+        "Mono.Cecil.Mdb.dll",
+        "Mono.Cecil.Pdb.dll",
+        "Mono.Cecil.Rocks.dll"
+    ],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
