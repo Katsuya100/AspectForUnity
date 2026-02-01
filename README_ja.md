@@ -173,8 +173,10 @@ Pointcut属性は、Adviceメソッドが適用されるメソッドを指定し
 
 ##### メソッド識別名構成例
 
-すべての要素が含まれる場合以下のように構成されます  
-`AssemblyFamily.AssemblyName[assembly:AssemblyAttribute][module:ModuleAttribute][declaring:DeclaringAttribute][return:ReturnAttribute][MethodAttribute("AttributeParameter",Property="AttributeProperty")]public sealed override ReturnType DeclaringTypeName<[DeclaringGenericAttribute]TDeclaring>MethodName<[GenericAttribute]TMethod>([ParameterAttribute]ParameterType parameterName)`  
+すべての要素が含まれる場合以下のように構成されます
+```
+AssemblyFamily.AssemblyName[assembly:AssemblyAttribute][module:ModuleAttribute][declaring:DeclaringAttribute][return:ReturnAttribute][MethodAttribute("AttributeParameter",Property="AttributeProperty")]public sealed override ReturnType DeclaringTypeName<[DeclaringGenericAttribute]TDeclaring>MethodName<[GenericAttribute]TMethod>([ParameterAttribute]ParameterType parameterName)
+```
 メソッド識別名の各要素は以下のように対応します。  
 
 
@@ -291,7 +293,7 @@ public static void BeforeAdvice([PointcutParameters] ParameterArray parameters)
 
 #### PointcutReturned
 
-対象メソッドの戻り値を取得します。
+対象メソッドの戻り値を取得します。  
 ※AfterReturningでのみ使用可能
 
 ```.cs
@@ -305,7 +307,7 @@ public static void AfterReturningAdvice([PointcutReturned] string returnValue)
 
 #### PointcutThrown
 
-スローされた例外を取得します。
+スローされた例外を取得します。  
 ※AfterThrowingでのみ使用可能
 
 ```.cs
@@ -354,9 +356,19 @@ public static void ModifyReturn(ref int parameter, [PointcutReturned] ref int re
 }
 ```
 
-## アスペクトのブロック
+### Aspectの適用範囲を明示化
+#### Assembly内と参照元にのみ適用
+Assembly内にAspectを定義することで外部Assemblyに影響を与えなくなる。  
+ただし、Aspectが定義されたAssemblyを参照している他のAssemblyには適用される。
 
-特定のメソッドでアスペクトの適用を無効化できます。
+#### すべてのAssemblyに適用
+1. `AspectForUnity/Runtime/AspectEntry/AspectEntry.asmdef`から`AssemblyReference`を作成する。  
+2. 1で作成したAssemblyReferenceのフォルダ以下にAspectクラスを配置する。
+3. すべてのAssemblyDefinitionにアスペクトが適用されます。
+
+### Aspectの適用を拒否する
+
+特定のメソッドでAspectの適用を無効化できます。
 
 ```.cs
 [BlockAspect(typeof(LoggingAspect))]

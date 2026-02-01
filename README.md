@@ -175,8 +175,10 @@ By combining with `PointcutNameFlag`, you can specify elements to include in the
 
 ##### Method Identifier Name Composition Example
 
-When all elements are included, it is composed as follows:  
-`AssemblyFamily.AssemblyName[assembly:AssemblyAttribute][module:ModuleAttribute][declaring:DeclaringAttribute][return:ReturnAttribute][MethodAttribute("AttributeParameter",Property="AttributeProperty")]public sealed override ReturnType DeclaringTypeName<[DeclaringGenericAttribute]TDeclaring>MethodName<[GenericAttribute]TMethod>([ParameterAttribute]ParameterType parameterName)`  
+When all elements are included, it is composed as follows: 
+```
+AssemblyFamily.AssemblyName[assembly:AssemblyAttribute][module:ModuleAttribute][declaring:DeclaringAttribute][return:ReturnAttribute][MethodAttribute("AttributeParameter",Property="AttributeProperty")]public sealed override ReturnType DeclaringTypeName<[DeclaringGenericAttribute]TDeclaring>MethodName<[GenericAttribute]TMethod>([ParameterAttribute]ParameterType parameterName)
+```
 Each element of the method identifier name corresponds as follows:
 
 
@@ -238,7 +240,7 @@ public static void BeforeAdvice(int parameter1, string parameter2)
 }
 ```
 
-The following is the injection target method
+The following is the target method
 ```.cs
 public class SampleClass
 {
@@ -293,7 +295,7 @@ public static void BeforeAdvice([PointcutParameters] ParameterArray parameters)
 
 #### PointcutReturned
 
-Obtain the target method's return value.
+Obtain the target method's return value.  
 *Can only be used with AfterReturning
 
 ```.cs
@@ -307,7 +309,7 @@ public static void AfterReturningAdvice([PointcutReturned] string returnValue)
 
 #### PointcutThrown
 
-Obtain the thrown exception.
+Obtain the thrown exception.  
 *Can only be used with AfterThrowing
 
 ```.cs
@@ -355,6 +357,18 @@ public static void ModifyReturn(ref int parameter, [PointcutReturned] ref int re
     returnValue = 999;  // Modify return value
 }
 ```
+
+### Explicitly Specifying Aspect Scope
+#### Apply Only Within the Assembly and to References
+Defining an Aspect within an assembly prevents it from affecting external assemblies.  
+However, it will apply to other assemblies that reference the assembly where the Aspect is defined.
+
+#### Apply to All Assemblies
+1. Create an `AssemblyReference` from `AspectForUnity/Runtime/AspectEntry/AspectEntry.asmdef`.
+2. Place the Aspect class in the folder created by step 1.
+3. The aspect will be applied to all AssemblyDefinitions.
+
+Translated with DeepL.com (free version)
 
 ## Blocking Aspects
 
