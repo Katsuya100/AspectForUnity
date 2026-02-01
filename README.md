@@ -35,12 +35,12 @@ These are inserted at compile time, minimizing the impact on runtime performance
 3. Enter `https://github.com/Katsuya100/AspectForUnity.git?path=packages` and click [Add].
 
 #### If It Doesn't Work
-The above method may not work in environments where git is not installed.
-Download `com.katuusagi.aspectforunity.tgz` for the corresponding version from [Releases](https://github.com/Katsuya100/AspectForUnity/releases)
+The above method may not work in environments where git is not installed.  
+Download `com.katuusagi.aspectforunity.tgz` for the corresponding version from [Releases](https://github.com/Katsuya100/AspectForUnity/releases)  
 and install it using [Package Manager > + > Add package from tarball...].
 
 #### If It Still Doesn't Work
-Download `Katuusagi.AspectForUnity.unitypackage` for the corresponding version from [Releases](https://github.com/Katsuya100/AspectForUnity/releases)
+Download `Katuusagi.AspectForUnity.unitypackage` for the corresponding version from [Releases](https://github.com/Katsuya100/AspectForUnity/releases)  
 and import it into your project from [Assets > Import Package > Custom Package].
 
 ## Basic Usage
@@ -58,7 +58,7 @@ public class LoggingAspect
 ```
 
 ### 2. Implementing Advice Methods
-Implement advice methods within the aspect class and add the `Advice` attribute and Pointcut attribute.
+Implement advice methods within the aspect class and add the `Advice` attribute and Pointcut attribute.  
 In the sample below, we use `RegexPointcut` (described later) to apply advice to methods containing `TestMethod` in their method name.
 ```.cs
 [Advice(JoinPoint.Before)]
@@ -151,12 +151,12 @@ public static void AfterThrowingAdvice()
 
 ## Pointcut Attributes
 
-Pointcut attributes specify which methods the advice method will be applied to.
+Pointcut attributes specify which methods the advice method will be applied to.  
 Multiple conditions can be set and are matched with AND conditions.
 
 ### RegexPointcut
 
-Match methods using regular expressions against the internal representation called `method identifier name`.
+Match methods using regular expressions against the internal representation called `method identifier name`.  
 By combining with `PointcutNameFlag`, you can specify elements to include in the `method identifier name`.
 
 *Example of method identifier name
@@ -175,8 +175,8 @@ By combining with `PointcutNameFlag`, you can specify elements to include in the
 
 ##### Method Identifier Name Composition Example
 
-When all elements are included, it is composed as follows:
-`AssemblyFamily.AssemblyName[assembly:AssemblyAttribute][module:ModuleAttribute][declaring:DeclaringAttribute][return:ReturnAttribute][MethodAttribute("AttributeParameter",Property="AttributeProperty")]public sealed override ReturnType DeclaringTypeName<[DeclaringGenericAttribute]TDeclaring>MethodName<[GenericAttribute]TMethod>([ParameterAttribute]ParameterType parameterName)`
+When all elements are included, it is composed as follows:  
+`AssemblyFamily.AssemblyName[assembly:AssemblyAttribute][module:ModuleAttribute][declaring:DeclaringAttribute][return:ReturnAttribute][MethodAttribute("AttributeParameter",Property="AttributeProperty")]public sealed override ReturnType DeclaringTypeName<[DeclaringGenericAttribute]TDeclaring>MethodName<[GenericAttribute]TMethod>([ParameterAttribute]ParameterType parameterName)`  
 Each element of the method identifier name corresponds as follows:
 
 
