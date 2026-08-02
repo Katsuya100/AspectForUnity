@@ -4,7 +4,7 @@
 AspectForUnityは、Unityプロジェクトにアスペクト指向プログラミング(AOP)の機能を提供します。  
 ILPostProcessorを使用して、メソッドの前後に処理を挿入することができます。  
 それによりログ出力、パフォーマンス測定、例外処理などの横断的関心事を、ビジネスロジックから分離して実装できます。  
-これらは、コンパイル時に挿入されるためラインタイムパフォーマンスへの影響を最小限に抑えます。  
+対象メソッドのILはコンパイル時に書き換えられ、実行時には挿入済みのAdviceが通常のメソッド呼び出しとして動作します。  
 
 
 ## 動作確認環境
@@ -22,6 +22,7 @@ ILPostProcessorを使用して、メソッドの前後に処理を挿入する�
 - **正規表現によるPointcut**: メソッド名やクラス名などを正規表現でマッチング
 - **パラメータバインディング**: メソッドの引数/型引数/戻り値のバインディング
 - **Unsafe Injection**: 戻り値やパラメータの変更
+- **適用ブロック**: Assembly、Module、型、メソッド単位でAspectの適用を抑止
 
 ## インストール方法
 ### ILPostProcessorCommonのインストール
@@ -50,13 +51,13 @@ ILPostProcessorを使用して、メソッドの前後に処理を挿入する�
 using Katuusagi.AspectForUnity;
 
 [Aspect]
-public class LoggingAspect
+public static class LoggingAspect
 {
 }
 ```
 
 ### 2. Adviceメソッドの実装
-アスペクトクラス内にAdviceメソッドを実装し、`Advice`属性とPointcut属性を付与します。  
+Aspectクラス内に `public`、戻り値 `void` のAdviceメソッドを実装し、`Advice`属性とPointcut属性を付与します。各Adviceには、メソッドまたはその宣言型に1つ以上のPointcut属性が必要です。  
 下記サンプルでは後述の`RegexPointcut`を使用して、メソッド名に`TestMethod`を含むメソッドに対してアドバイスを適用しています。  
 ```.cs
 [Advice(JoinPoint.Before)]
@@ -175,7 +176,7 @@ Pointcut属性は、Adviceメソッドが適用されるメソッドを指定し
 
 すべての要素が含まれる場合以下のように構成されます
 ```
-AssemblyFamily.AssemblyName[assembly:AssemblyAttribute][module:ModuleAttribute][declaring:DeclaringAttribute][return:ReturnAttribute][MethodAttribute("AttributeParameter",Property="AttributeProperty")]public sealed override ReturnType DeclaringTypeName<[DeclaringGenericAttribute]TDeclaring>MethodName<[GenericAttribute]TMethod>([ParameterAttribute]ParameterType parameterName)
+AssemblyName[assembly:AssemblyAttribute][module:ModuleAttribute][declaring:DeclaringAttribute][return:ReturnAttribute][MethodAttribute("AttributeParameter",Property="AttributeProperty")]public static sealed override ReturnType DeclaringTypeName<[DeclaringGenericAttribute]TDeclaring>::MethodName<[GenericAttribute]TMethod>([ParameterAttribute]ParameterType parameterName)
 ```
 メソッド識別名の各要素は以下のように対応します。  
 
@@ -185,7 +186,7 @@ AssemblyFamily.AssemblyName[assembly:AssemblyAttribute][module:ModuleAttribute][
 | Flag                  | 説明                         | 上記メソッド識別名例内の部品 |
 |-----------------------|------------------------------| --------------------------------|
 | AssemblyAttribute    | アセンブリ属性をメソッド識別名に含む       | `[assembly:AssemblyAttribute]` |
-| AssemblyName         | アセンブリ名をメソッド識別名に含む         | `AssemblyFamily.AssemblyName` |
+| AssemblyName         | アセンブリ名をメソッド識別名に含む         | `AssemblyName` |
 | ModuleAttribute     | モジュール属性をメソッド識別名に含む       | `[module:ModuleAttribute]` |
 | DeclaringTypeAttribute | 宣言型の属性をメソッド識別名に含む        | `[declaring:DeclaringAttribute]` |
 | DeclaringTypeName   | 宣言型名をメソッド識別名に含む            | `DeclaringTypeName` |
@@ -206,7 +207,7 @@ AssemblyFamily.AssemblyName[assembly:AssemblyAttribute][module:ModuleAttribute][
 | AttributeArguments  | 属性のコンストラクタ引数をメソッド識別名に含む | `("AttributeParameter")` |
 | AttributeProperties | 属性のプロパティをメソッド識別名に含む      | `(Property="AttributeProperty")` |
 | AncestorDeclaringTypeAttribute | 親クラスの属性を再帰的に遡りメソッド識別名に含む<br/>DeclaringTypeAttributeが有効なときにのみ使用可能     | `[declaring:DeclaringAttribute]`<br/>以下のように再帰的に遡る<br/>`[declaring:DeclaringAttribute,AncestorDeclaringTypeAttribute]` |
-| AssemblyFullName    | アセンブリの完全修飾名をメソッド識別名に含む<br/>AssemblyNameが有効なときにのみ使用可能  | `AssemblyFamily.AssemblyName`<br/>以下のようにフルネームになる<br/>`AssemblyFamily.AssemblyName, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null` | 
+| AssemblyFullName    | アセンブリの完全修飾名をメソッド識別名に含む<br/>AssemblyNameが有効なときにのみ使用可能  | `AssemblyName`<br/>以下のようにフルネームになる<br/>`AssemblyName, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null` | 
 | TypeFullName        | 型の完全修飾名をメソッド識別名に含む<br/>いずれかのTypeNameが有効なときにのみ使用可能  | `DeclaringTypeName`他<br/>以下のようにフルネームになる<br/>`Namespace.DeclaringTypeName` |
 | Simple              | 基本となる識別名 | N/A |
 | LocalSignature      | アセンブリ内での識別名 | N/A |
@@ -326,7 +327,7 @@ public static void AfterThrowingAdvice([PointcutThrown] Exception exception)
 
 ```.cs
 [Advice(JoinPoint.Before)]
-[RegexPointcut(@"<T>(T value)", PointcutNameFlag.GenericArgumentName | PointcutNameFlag.ParameterTypeName | PointcutNameFlag.PointcutParameterName)]
+[RegexPointcut(@"<T>\(T value\)", PointcutNameFlag.GenericArgumentName | PointcutNameFlag.ParameterTypeName | PointcutNameFlag.ParameterName)]
 public static void GenericAdvice<[PointcutGenericBind(GenericBinding.ParameterType)]T>(T value)
 {
     Debug.Log($"generic argument: {typeof(T).Name}, value: {value}");
@@ -348,7 +349,7 @@ public static void GenericAdvice<[PointcutGenericBind(GenericBinding.ParameterTy
 
 ```.cs
 [Advice(JoinPoint.AfterReturning, unsafeInjection: true)]
-[RegexPointcut("^Int32(Int32 parameter)$", PointcutNameFlag.ReturnTypeName | PointcutNameFlag.ParameterTypeName | PointcutNameFlag.PointcutParameterName)]
+[RegexPointcut(@"^Int32\(Int32 parameter\)$", PointcutNameFlag.ReturnTypeName | PointcutNameFlag.ParameterTypeName | PointcutNameFlag.ParameterName)]
 public static void ModifyReturn(ref int parameter, [PointcutReturned] ref int returnValue)
 {
     parameter = 42;  // 引数を変更
@@ -362,8 +363,8 @@ Assembly内にAspectを定義することで外部Assemblyに影響を与えな�
 ただし、Aspectが定義されたAssemblyを参照している他のAssemblyには適用される。
 
 #### すべてのAssemblyに適用
-1. `AspectForUnity/Runtime/AspectEntry/AspectEntry.asmdef`から`AssemblyReference`を作成する。  
-2. 1で作成したAssemblyReferenceのフォルダ以下にAspectクラスを配置する。
+1. `packages/Runtime/AspectEntry/AspectEntry.asmdef` を参照するAssembly Definition Reference（`.asmref`）を作成する。  
+2. その `.asmref` と同じAssemblyにAspectクラスを配置する。
 3. すべてのAssemblyDefinitionにアスペクトが適用されます。
 
 ### Aspectの適用を拒否する
@@ -371,7 +372,7 @@ Assembly内にAspectを定義することで外部Assemblyに影響を与えな�
 特定のメソッドでAspectの適用を無効化できます。
 
 ```.cs
-[BlockAspect(typeof(LoggingAspect))]
+[BlockAspect]
 public void NoLoggingMethod()
 {
     // このメソッドにはLoggingAspectが適用されません
@@ -380,12 +381,15 @@ public void NoLoggingMethod()
 
 以下の記法でAssembly全体にアスペクトの適用を無効化することも可能です。
 ```.cs
-[assembly: BlockAspect(typeof(LoggingAspect))]
+[assembly: BlockAspect]
 ```
+
+`BlockAspect` はAssembly、Module、Class、Struct、Enum、Method、Constructorに指定でき、指定した範囲へのすべてのAspectの適用をブロックします。
 
 ## パフォーマンスに関する注意
 
-- ILPostProcessorによるコンパイル時のコード生成のため、実行時のオーバーヘッドは最小限です
+- Pointcutの正規表現判定とIL書き換えはコンパイル時に行われ、実行時の正規表現判定やプロキシ呼び出しはありません
+- 実行時にはAdvice呼び出し自体のコストがあり、`PointcutMethod` は `MethodBase` の取得、`PointcutParameters` は引数のボックス化とプール配列への格納を伴います
 - ただし、多数のアスペクトを適用するとコンパイル時間が増加する可能性があります
 
 ## サンプル: パフォーマンス測定
@@ -395,7 +399,7 @@ using System.Diagnostics;
 using Katuusagi.AspectForUnity;
 
 [Aspect]
-public class PerformanceAspect
+public static class PerformanceAspect
 {
     private static Stopwatch stopwatch = new Stopwatch();
 
@@ -423,7 +427,7 @@ using System;
 using Katuusagi.AspectForUnity;
 
 [Aspect]
-public class ExceptionHandlingAspect
+public static class ExceptionHandlingAspect
 {
     [Advice(JoinPoint.AfterThrowing)]
     [RegexPointcut(".*")]
@@ -444,3 +448,11 @@ public class ExceptionHandlingAspect
 - **ILPostProcessor**: Unity.CompilationPipelineを使用してコンパイル時にILコードを変更
 - **Mono.Cecil**: ILコードの読み取りと書き込みに使用
 - **属性ベースの設定**: アスペクトとアドバイスの定義に属性を使用
+- **対象Assembly**: `Katuusagi.AspectForUnity` を参照するAssemblyを処理
+- **メソッド変換**: 元の本体を生成メソッドへ移し、元のメソッドをAdvice呼び出し用ラッパーとして再構成
+
+### Adviceの制約
+
+- Adviceは `[Aspect]` クラスに `public void`（staticなら `public static void`）として宣言し、`out` パラメータは使用できません。
+- static Aspectはそのまま利用できます。インスタンスAspectは抽象型・ジェネリック型にできず、対象メソッドごとに一致する `[Advice(JoinPoint.Before)]` 付き `public` コンストラクタがちょうど1つ必要です。そのAspectのインスタンスAdviceは、コンストラクタが生成したインスタンスを共有します。
+- Adviceの宣言や対象メソッドとの型バインディングに誤りがある場合は、Unityのコンパイルログにエラーが出力されます。

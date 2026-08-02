@@ -6,7 +6,7 @@
 AspectForUnity provides Aspect-Oriented Programming (AOP) functionality to Unity projects.  
 Using ILPostProcessor, you can insert processing before and after methods.  
 This allows you to implement cross-cutting concerns such as logging, performance measurement, and exception handling separately from business logic.  
-These are inserted at compile time, minimizing the impact on runtime performance.  
+The target method IL is rewritten at compile time; at runtime, the inserted advice executes as ordinary method calls.  
 
 
 ## Verified Environment
@@ -24,6 +24,7 @@ These are inserted at compile time, minimizing the impact on runtime performance
 - **Regex-based Pointcut**: Match method names and class names using regular expressions
 - **Parameter Binding**: Binding of method arguments/type arguments/return values
 - **Unsafe Injection**: Modification of return values and parameters
+- **Application Blocking**: Suppress aspect application at assembly, module, type, or method scope
 
 ## Installation Method
 ### Installing ILPostProcessorCommon
@@ -52,13 +53,13 @@ Define an aspect class by adding the `Aspect` attribute to a class.
 using Katuusagi.AspectForUnity;
 
 [Aspect]
-public class LoggingAspect
+public static class LoggingAspect
 {
 }
 ```
 
 ### 2. Implementing Advice Methods
-Implement advice methods within the aspect class and add the `Advice` attribute and Pointcut attribute.  
+Implement `public void` advice methods within the aspect class and add the `Advice` attribute and a Pointcut attribute. Every advice requires at least one Pointcut on the method or its declaring type.  
 In the sample below, we use `RegexPointcut` (described later) to apply advice to methods containing `TestMethod` in their method name.
 ```.cs
 [Advice(JoinPoint.Before)]
@@ -112,7 +113,7 @@ public static void BeforeAdvice()
 
 ### After
 
-Insert processing after method execution (executed even if an exception occurs).
+Insert processing in a `finally` around the method body. It runs whether the method body returns normally or throws.
 
 ```.cs
 [Advice(JoinPoint.After)]
@@ -138,7 +139,7 @@ public static void AfterReturningAdvice()
 
 ### AfterThrowing
 
-Insert processing after method throws an exception.
+Insert processing when the method body throws, then rethrow the same exception. When `PointcutThrown` uses a derived exception type, the advice runs only for matching exceptions.
 
 ```.cs
 [Advice(JoinPoint.AfterThrowing)]
@@ -152,14 +153,16 @@ public static void AfterThrowingAdvice()
 ## Pointcut Attributes
 
 Pointcut attributes specify which methods the advice method will be applied to.  
-Multiple conditions can be set and are matched with AND conditions.
+Multiple conditions can be set and are matched with AND conditions. Pointcuts may be placed on the advice method or on its declaring type, including enclosing declaring types.
 
 ### RegexPointcut
 
 Match methods using regular expressions against the internal representation called `method identifier name`.  
 By combining with `PointcutNameFlag`, you can specify elements to include in the `method identifier name`.
 
-*Example of method identifier name
+When the second argument is omitted, `RegexPointcut` uses `PointcutNameFlag.Simple`.
+
+*Example method identifier name (`Simple`)
 `String SampleController::GetStatus<T>(Int32 parameter)`
 
 ```.cs
@@ -177,7 +180,7 @@ By combining with `PointcutNameFlag`, you can specify elements to include in the
 
 When all elements are included, it is composed as follows: 
 ```
-AssemblyFamily.AssemblyName[assembly:AssemblyAttribute][module:ModuleAttribute][declaring:DeclaringAttribute][return:ReturnAttribute][MethodAttribute("AttributeParameter",Property="AttributeProperty")]public sealed override ReturnType DeclaringTypeName<[DeclaringGenericAttribute]TDeclaring>MethodName<[GenericAttribute]TMethod>([ParameterAttribute]ParameterType parameterName)
+AssemblyName[assembly:AssemblyAttribute][module:ModuleAttribute][declaring:DeclaringAttribute][return:ReturnAttribute][MethodAttribute("AttributeParameter",Property="AttributeProperty")]public static sealed override ReturnType DeclaringTypeName<[DeclaringGenericAttribute]TDeclaring>::MethodName<[GenericAttribute]TMethod>([ParameterAttribute]ParameterType parameterName)
 ```
 Each element of the method identifier name corresponds as follows:
 
@@ -187,18 +190,18 @@ Each element of the method identifier name corresponds as follows:
 | Flag                  | Description                         | Component in Above Method Identifier Name Example |
 |-----------------------|-------------------------------------| --------------------------------|
 | AssemblyAttribute    | Include assembly attributes in method identifier name       | `[assembly:AssemblyAttribute]` |
-| AssemblyName         | Include assembly name in method identifier name         | `AssemblyFamily.AssemblyName` |
+| AssemblyName         | Include assembly name in method identifier name         | `AssemblyName` |
 | ModuleAttribute     | Include module attributes in method identifier name       | `[module:ModuleAttribute]` |
 | DeclaringTypeAttribute | Include declaring type attributes in method identifier name        | `[declaring:DeclaringAttribute]` |
 | DeclaringTypeName   | Include declaring type name in method identifier name            | `DeclaringTypeName` |
-| DeclaringTypeGenericArgumentAttribute | Include declaring type generic argument attributes in method identifier name | `<TDeclaring>` |
-| DeclaringTypeGenericArgumentName | Include declaring type generic argument names in method identifier name | `<[DeclaringGenericAttribute]>` |
+| DeclaringTypeGenericArgumentAttribute | Include declaring type generic argument attributes in method identifier name | `<[DeclaringGenericAttribute]>` |
+| DeclaringTypeGenericArgumentName | Include declaring type generic argument names in method identifier name | `<TDeclaring>` |
 | MethodAttribute     | Include method attributes in method identifier name         | `[MethodAttribute]` |
 | MethodName          | Include method name in method identifier name           | `MethodName` |
 | ReturnTypeAttribute | Include return value attributes in method identifier name         | `[return:ReturnAttribute]` |
 | ReturnTypeName      | Include return value type name in method identifier name         | `ReturnType` |
-| GenericArgumentAttribute | Include generic argument attributes in method identifier name  | `<TMethod>` |
-| GenericArgumentName | Include generic argument names in method identifier name     | `<[GenericAttribute]>` |
+| GenericArgumentAttribute | Include generic argument attributes in method identifier name  | `<[GenericAttribute]>` |
+| GenericArgumentName | Include generic argument names in method identifier name     | `<TMethod>` |
 | ParameterAttribute  | Include parameter attributes in method identifier name        | `([ParameterAttribute])` |
 | ParameterTypeName   | Include parameter type names in method identifier name        | `(ParameterType)` |
 | ParameterName       | Include parameter names in method identifier name          | `(parameterName)` |
@@ -208,11 +211,11 @@ Each element of the method identifier name corresponds as follows:
 | AttributeArguments  | Include attribute constructor arguments in method identifier name | `("AttributeParameter")` |
 | AttributeProperties | Include attribute properties in method identifier name      | `(Property="AttributeProperty")` |
 | AncestorDeclaringTypeAttribute | Recursively traverse parent class attributes and include in method identifier name<br/>Can only be used when DeclaringTypeAttribute is enabled     | `[declaring:DeclaringAttribute]`<br/>Recursively traverses as follows<br/>`[declaring:DeclaringAttribute,AncestorDeclaringTypeAttribute]` |
-| AssemblyFullName    | Include assembly fully qualified name in method identifier name<br/>Can only be used when AssemblyName is enabled  | `AssemblyFamily.AssemblyName`<br/>Becomes full name as follows<br/>`AssemblyFamily.AssemblyName, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null` | 
+| AssemblyFullName    | Include assembly fully qualified name in method identifier name<br/>Can only be used when AssemblyName is enabled  | `AssemblyName`<br/>Becomes full name as follows<br/>`AssemblyName, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null` | 
 | TypeFullName        | Include type fully qualified name in method identifier name<br/>Can only be used when any TypeName is enabled  | `DeclaringTypeName` and others<br/>Becomes full name as follows<br/>`Namespace.DeclaringTypeName` |
-| Simple              | Basic identifier name | N/A |
-| LocalSignature      | Identifier name within assembly | N/A |
-| GlobalSignature     | Global identifier name | N/A |
+| Simple              | Return type, declaring type, method name, method generic argument names, and parameter types/names | N/A |
+| LocalSignature      | `Simple` plus fully qualified type names | N/A |
+| GlobalSignature     | `LocalSignature` plus assembly name | N/A |
 | All                 | Include all elements in method identifier name<br/>*Behavior may change with updates. | N/A |
 
 ##### How to Check Method Identifier Name
@@ -226,11 +229,12 @@ public void SampleMethod(int parameter)
 }
 ```
 ###### Output Destination
-`Logs/PointcutMethodName/[AssemblyName]/[ClassName].txt`
+`Logs/PointcutMethodName/[AssemblyName]/[fully-qualified-type-name].txt`  
+The file contains the identifier generated with `All` and one identifier for each flag requested by the attribute. Characters invalid in file names are replaced with `_`.
 
 ## Parameter Binding
 ### Basic Binding
-By giving the advice method's parameters the same name as the target method's arguments, you can bind values.
+Give advice parameters the same names as target-method arguments to bind type-compatible values. A missing name or incompatible type produces a compilation error. `Before`, `AfterThrowing`, and `After` cannot bind target `out` parameters.
 ```.cs
 [Advice(JoinPoint.Before)]
 [RegexPointcut(".*")]
@@ -256,7 +260,7 @@ By adding the following attributes to advice method parameters, you can obtain r
 
 #### PointcutThis
 
-Obtain the `this` instance of the target method.
+Obtain the `this` instance of the target method. This applies only to instance methods, and the declared parameter type must be compatible with the target declaring type.
 
 ```.cs
 [Advice(JoinPoint.Before)]
@@ -282,7 +286,7 @@ public static void BeforeAdvice([PointcutMethod] MethodBase method)
 
 #### PointcutParameters
 
-Obtain the target method's parameters as an array.
+Obtain the target method's parameters as a `ParameterArray`, readable through `Length` and its indexer. It is a `readonly ref struct` over a pooled array; use it only during the advice call and do not retain it.
 
 ```.cs
 [Advice(JoinPoint.Before)]
@@ -296,7 +300,7 @@ public static void BeforeAdvice([PointcutParameters] ParameterArray parameters)
 #### PointcutReturned
 
 Obtain the target method's return value.  
-*Can only be used with AfterReturning
+*Only valid with AfterReturning. It cannot be used on `void` methods, and its type must be compatible with the return type.
 
 ```.cs
 [Advice(JoinPoint.AfterReturning)]
@@ -310,7 +314,7 @@ public static void AfterReturningAdvice([PointcutReturned] string returnValue)
 #### PointcutThrown
 
 Obtain the thrown exception.  
-*Can only be used with AfterThrowing
+*Only valid with AfterThrowing. Its type must be `Exception` or a derived exception type.
 
 ```.cs
 [Advice(JoinPoint.AfterThrowing)]
@@ -328,7 +332,7 @@ Specify how to bind generic parameters.
 
 ```.cs
 [Advice(JoinPoint.Before)]
-[RegexPointcut(@"<T>(T value)", PointcutNameFlag.GenericArgumentName | PointcutNameFlag.ParameterTypeName | PointcutNameFlag.PointcutParameterName)]
+[RegexPointcut(@"<T>\(T value\)", PointcutNameFlag.GenericArgumentName | PointcutNameFlag.ParameterTypeName | PointcutNameFlag.ParameterName)]
 public static void GenericAdvice<[PointcutGenericBind(GenericBinding.ParameterType)]T>(T value)
 {
     Debug.Log($"generic argument: {typeof(T).Name}, value: {value}");
@@ -340,17 +344,17 @@ public static void GenericAdvice<[PointcutGenericBind(GenericBinding.ParameterTy
 | BindingType | Description                     |
 |-------------|-----------------------------|
 | GenericParameterName | Bind by generic parameter name.<br/>Default behavior. |
-| ParameterType | Implicitly bind when used as a parameter type. |
+| ParameterType | Infer the generic argument from its use in an ordinary advice parameter, `PointcutThis`, or `PointcutReturned`. No inferred type or multiple distinct inferred types is a compilation error. |
 
 ## Advanced Features
 
 ### Unsafe Injection
 
-By adding ref to arguments, you can modify return values and parameters.
+Set `unsafeInjection` on `Advice` to `true` and add `ref` to modify return values and target-method parameters. “Unsafe” here explicitly permits advice to rewrite values; it does not mean C# pointers or an `unsafe` context.
 
 ```.cs
 [Advice(JoinPoint.AfterReturning, unsafeInjection: true)]
-[RegexPointcut("^Int32(Int32 parameter)$", PointcutNameFlag.ReturnTypeName | PointcutNameFlag.ParameterTypeName | PointcutNameFlag.PointcutParameterName)]
+[RegexPointcut(@"^Int32\(Int32 parameter\)$", PointcutNameFlag.ReturnTypeName | PointcutNameFlag.ParameterTypeName | PointcutNameFlag.ParameterName)]
 public static void ModifyReturn(ref int parameter, [PointcutReturned] ref int returnValue)
 {
     parameter = 42;  // Modify argument
@@ -360,22 +364,19 @@ public static void ModifyReturn(ref int parameter, [PointcutReturned] ref int re
 
 ### Explicitly Specifying Aspect Scope
 #### Apply Only Within the Assembly and to References
-Defining an Aspect within an assembly prevents it from affecting external assemblies.  
-However, it will apply to other assemblies that reference the assembly where the Aspect is defined.
+A normal aspect is loaded while compiling its defining assembly and assemblies that directly reference that assembly. Unrelated assemblies are unaffected. The target assembly must also reference `Katuusagi.AspectForUnity`.
 
 #### Apply to All Assemblies
-1. Create an `AssemblyReference` from `AspectForUnity/Runtime/AspectEntry/AspectEntry.asmdef`.
-2. Place the Aspect class in the folder created by step 1.
+1. Create an Assembly Definition Reference (`.asmref`) that references `packages/Runtime/AspectEntry/AspectEntry.asmdef`.
+2. Place the Aspect class in the same assembly as that `.asmref`.
 3. The aspect will be applied to all AssemblyDefinitions.
-
-Translated with DeepL.com (free version)
 
 ## Blocking Aspects
 
 You can disable aspect application for specific methods.
 
 ```.cs
-[BlockAspect(typeof(LoggingAspect))]
+[BlockAspect]
 public void NoLoggingMethod()
 {
     // LoggingAspect will not be applied to this method
@@ -384,12 +385,15 @@ public void NoLoggingMethod()
 
 It is also possible to disable aspect application for the entire Assembly with the following notation:
 ```.cs
-[assembly: BlockAspect(typeof(LoggingAspect))]
+[assembly: BlockAspect]
 ```
+
+`BlockAspect` can target an assembly, module, class, struct, enum, method, or constructor and blocks all aspect application within that scope.
 
 ## Performance Considerations
 
-- Due to compile-time code generation by ILPostProcessor, runtime overhead is minimal
+- Pointcut regex matching and IL rewriting happen at compile time, so runtime execution performs no regex matching or proxy dispatch
+- Runtime still pays for the advice calls themselves; `PointcutMethod` obtains a `MethodBase`, while `PointcutParameters` boxes arguments and stores them in a pooled array
 - However, applying many aspects may increase compilation time
 
 ## Sample: Performance Measurement
@@ -399,7 +403,7 @@ using System.Diagnostics;
 using Katuusagi.AspectForUnity;
 
 [Aspect]
-public class PerformanceAspect
+public static class PerformanceAspect
 {
     private static Stopwatch stopwatch = new Stopwatch();
 
@@ -427,7 +431,7 @@ using System;
 using Katuusagi.AspectForUnity;
 
 [Aspect]
-public class ExceptionHandlingAspect
+public static class ExceptionHandlingAspect
 {
     [Advice(JoinPoint.AfterThrowing)]
     [RegexPointcut(".*")]
@@ -448,3 +452,11 @@ public class ExceptionHandlingAspect
 - **ILPostProcessor**: Modifies IL code at compile time using Unity.CompilationPipeline
 - **Mono.Cecil**: Used for reading and writing IL code
 - **Attribute-based Configuration**: Uses attributes to define aspects and advice
+- **Target Assemblies**: Processes assemblies that reference `Katuusagi.AspectForUnity`
+- **Method Transformation**: Moves the original body to a generated method and rebuilds the original method as the advice wrapper
+
+### Advice Constraints
+
+- Declare advice in an `[Aspect]` class as `public void` (`public static void` for static advice). Advice cannot use `out` parameters.
+- Static aspects work directly. An instance aspect cannot be abstract or generic and needs exactly one matching `public` constructor marked `[Advice(JoinPoint.Before)]` per target method. Its instance advice shares the object created by that constructor.
+- Invalid advice declarations or incompatible bindings to target methods are reported in Unity's compilation log.
