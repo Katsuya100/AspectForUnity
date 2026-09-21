@@ -4,7 +4,7 @@
 ## Overview
 
 AspectForUnity provides Aspect-Oriented Programming (AOP) functionality to Unity projects.  
-Using ILPostProcessor, you can insert processing before and after methods.  
+Using ILPostProcessor, you can insert processing before, after, or around methods.
 This allows you to implement cross-cutting concerns such as logging, performance measurement, and exception handling separately from business logic.  
 The target method IL is rewritten at compile time; at runtime, the inserted advice executes as ordinary method calls.  
 
@@ -21,8 +21,13 @@ The target method IL is rewritten at compile time; at runtime, the inserted advi
 - **JoinPoint.After**: Insert processing after method execution
 - **JoinPoint.AfterReturning**: Insert processing after method completes normally
 - **JoinPoint.AfterThrowing**: Insert processing after method throws an exception
+- **JoinPoint.Around**: Wrap method execution and control when the original method proceeds
 - **Regex-based Pointcut**: Match method names and class names using regular expressions
+- **Direct Pointcuts**: Match method names, declaring types, attributes, generic parameters, parameter types, and return types directly
 - **Parameter Binding**: Binding of method arguments/type arguments/return values
+- **Proceeding Contexts**: Invoke the original method and inspect or modify its return value from Around advice
+- **Async Execution Sequence Scope**: Apply advice across one logical async execution sequence
+- **Struct Aspects**: Define aspects on classes or structs
 - **Unsafe Injection**: Modification of return values and parameters
 - **Application Blocking**: Suppress aspect application at assembly, module, type, or method scope
 
@@ -47,7 +52,7 @@ and import it into your project from [Assets > Import Package > Custom Package].
 ## Basic Usage
 
 ### 1. Creating an Aspect Class
-Define an aspect class by adding the `Aspect` attribute to a class.
+Define an aspect class or struct by adding the `Aspect` attribute.
 
 ```.cs
 using Katuusagi.AspectForUnity;
@@ -58,8 +63,10 @@ public static class LoggingAspect
 }
 ```
 
+`[Aspect]` can also be applied to a struct.
+
 ### 2. Implementing Advice Methods
-Implement `public void` advice methods within the aspect class and add the `Advice` attribute and a Pointcut attribute. Every advice requires at least one Pointcut on the method or its declaring type.  
+Implement `public void` advice methods within the aspect class or struct and add the `Advice` attribute and a Pointcut attribute. Every advice requires at least one Pointcut on the method or its declaring type.
 In the sample below, we use `RegexPointcut` (described later) to apply advice to methods containing `TestMethod` in their method name.
 ```.cs
 [Advice(JoinPoint.Before)]
@@ -150,10 +157,67 @@ public static void AfterThrowingAdvice()
 }
 ```
 
+### Around
+
+Around advice wraps the target method. Add exactly one `[PointcutProceed]` parameter and call `Proceed()` to invoke the next Around advice or the original method. Around advice must call `Proceed()` exactly once.
+
+For a `void` target method, use `ProceedingContext`:
+
+```.cs
+[Advice(JoinPoint.Around)]
+[MethodNamePointcut("TestMethod")]
+public static void AroundAdvice([PointcutProceed] ProceedingContext proceed)
+{
+    Debug.Log("before");
+    proceed.Proceed();
+    Debug.Log("after");
+}
+```
+
+For a method with a return value, use `ProceedingContext<T>` to read the result after `Proceed()`:
+
+```.cs
+[Advice(JoinPoint.Around)]
+[MethodNamePointcut("GetValue")]
+public static void AroundAdvice([PointcutProceed] ProceedingContext<int> proceed)
+{
+    proceed.Proceed();
+    Debug.Log($"return value: {proceed.ReturnValue}");
+}
+```
+
+With `unsafeInjection: true`, `UnsafeProceedingContext<T>` exposes a writable `ReturnValue` for modifying the result.
+
 ## Pointcut Attributes
 
 Pointcut attributes specify which methods the advice method will be applied to.  
 Multiple conditions can be set and are matched with AND conditions. Pointcuts may be placed on the advice method or on its declaring type, including enclosing declaring types.
+
+### Direct Pointcuts
+
+The following pointcuts match method metadata without constructing a regular expression. Multiple pointcuts are combined with AND conditions.
+
+| Pointcut | Matches |
+| --- | --- |
+| `MethodNamePointcut` | Target method name |
+| `DeclaringTypePointcut` | Declaring type name or type |
+| `AttributeTypePointcut` | Attribute type applied to the target method |
+| `DeclaringAttributeTypePointcut` | Attribute type applied to the declaring type |
+| `GenericParameterNamePointcut` | Generic parameter name; repeated indexes are supported |
+| `ParameterTypePointcut` | Parameter type name or type; repeated indexes are supported |
+| `ReturnTypePointcut` | Return type name or type |
+
+For example:
+
+```.cs
+[Advice(JoinPoint.Before)]
+[MethodNamePointcut("GetValue")]
+[ReturnTypePointcut(typeof(int))]
+public static void BeforeGetValue()
+{
+    // Processing for int GetValue methods
+}
+```
 
 ### RegexPointcut
 
@@ -325,6 +389,12 @@ public static void AfterThrowingAdvice([PointcutThrown] Exception exception)
 }
 ```
 
+#### PointcutProceed
+
+Obtain the proceeding context for Around advice. The parameter must be marked with `[PointcutProceed]`; use `ProceedingContext` for `void` methods and `ProceedingContext<T>` for methods with a return value.
+
+`Proceed()` invokes the next Around advice or the target method. It must be called exactly once. `ProceedingContext<T>.ReturnValue` can be read after proceeding. With `unsafeInjection: true`, use `UnsafeProceedingContext<T>` to modify the return value.
+
 #### PointcutGenericBind
 
 Specify how to bind generic parameters.
@@ -345,6 +415,7 @@ public static void GenericAdvice<[PointcutGenericBind(GenericBinding.ParameterTy
 |-------------|-----------------------------|
 | GenericParameterName | Bind by generic parameter name.<br/>Default behavior. |
 | ParameterType | Infer the generic argument from its use in an ordinary advice parameter, `PointcutThis`, or `PointcutReturned`. No inferred type or multiple distinct inferred types is a compilation error. |
+| ReturnType | Infer the generic argument from the target method's return type. |
 
 ## Advanced Features
 
@@ -361,6 +432,21 @@ public static void ModifyReturn(ref int parameter, [PointcutReturned] ref int re
     returnValue = 999;  // Modify return value
 }
 ```
+
+### Advice Scope
+
+Advice uses `AdviceScope.Invocation` by default and is applied at each method invocation boundary. Use `AdviceScope.AsyncExecutionSequence` to apply advice to one logical asynchronous execution sequence, including await or yield suspension and resumption points.
+
+```.cs
+[Advice(JoinPoint.Before, AdviceScope.AsyncExecutionSequence)]
+[MethodNamePointcut("RunAsync")]
+public static void BeforeAsyncSequence()
+{
+    Debug.Log("async sequence started");
+}
+```
+
+Around advice is not supported with `AsyncExecutionSequence`.
 
 ### Explicitly Specifying Aspect Scope
 #### Apply Only Within the Assembly and to References
@@ -457,6 +543,8 @@ public static class ExceptionHandlingAspect
 
 ### Advice Constraints
 
-- Declare advice in an `[Aspect]` class as `public void` (`public static void` for static advice). Advice cannot use `out` parameters.
+- Declare advice in an `[Aspect]` class or struct as `public void` (`public static void` for static advice). Advice cannot use `out` parameters.
 - Static aspects work directly. An instance aspect cannot be abstract or generic and needs exactly one matching `public` constructor marked `[Advice(JoinPoint.Before)]` per target method. Its instance advice shares the object created by that constructor.
+- Around advice requires exactly one `[PointcutProceed]` parameter, must call `Proceed()` exactly once, and cannot use `PointcutReturned` or `PointcutThrown`.
+- `Around` advice cannot be applied to constructors, and `Around` is not supported for `AsyncExecutionSequence` advice.
 - Invalid advice declarations or incompatible bindings to target methods are reported in Unity's compilation log.

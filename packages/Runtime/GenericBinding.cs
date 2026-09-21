@@ -4,5 +4,6 @@ namespace Katuusagi.AspectForUnity
     {
         GenericParameterName,
         ParameterType,
+        ReturnType,
     }
 }

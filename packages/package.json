@@ -2,7 +2,7 @@
     "name": "com.katuusagi.aspectforunity",
     "displayName": "AspectForUnity",
     "description": "A library for efficient aspect-oriented programming.",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "unity": "6000.0",
     "dependencies": {
         "com.unity.nuget.mono-cecil": "1.11.4",
@@ -19,5 +19,5 @@
     },
     "documentationUrl": "https://github.com/Katsuya100/AspectForUnity",
     "changelogUrl": "https://github.com/Katsuya100/AspectForUnity/releases",
-    "licensesUrl": "https://github.com/Katsuya100/AspectForUnity/blob/ver1.0.0/LICENSE"
+    "licensesUrl": "https://github.com/Katsuya100/AspectForUnity/blob/ver1.1.0/LICENSE"
 }

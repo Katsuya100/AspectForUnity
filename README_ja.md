@@ -19,8 +19,13 @@ ILPostProcessorを使用して、メソッドの前後に処理を挿入する�
 - **JoinPoint.After**: メソッド実行後に処理を挿入
 - **JoinPoint.AfterReturning**: メソッドが正常に終了した後に処理を挿入
 - **JoinPoint.AfterThrowing**: メソッドが例外をスローした後に処理を挿入
+- **JoinPoint.Around**: メソッド実行をラップし、元のメソッドを実行するタイミングを制御
 - **正規表現によるPointcut**: メソッド名やクラス名などを正規表現でマッチング
+- **直接指定Pointcut**: メソッド名、宣言型、属性、ジェネリックパラメータ、パラメータ型、戻り値型を直接指定してマッチング
 - **パラメータバインディング**: メソッドの引数/型引数/戻り値のバインディング
+- **Proceeding Context**: Around Adviceから元のメソッドを実行し、戻り値を参照または変更
+- **非同期実行シーケンススコープ**: 1つの論理的な非同期実行シーケンスにまたがってAdviceを適用
+- **Struct Aspect**: クラスまたは構造体にAspectを定義
 - **Unsafe Injection**: 戻り値やパラメータの変更
 - **適用ブロック**: Assembly、Module、型、メソッド単位でAspectの適用を抑止
 
@@ -45,7 +50,7 @@ ILPostProcessorを使用して、メソッドの前後に処理を挿入する�
 ## 基本的な使い方
 
 ### 1. Aspectクラスの作成
-クラスに`Aspect`属性を付与してアスペクトクラスを定義します。
+クラスまたは構造体に`Aspect`属性を付与してアスペクトを定義します。
 
 ```.cs
 using Katuusagi.AspectForUnity;
@@ -56,8 +61,10 @@ public static class LoggingAspect
 }
 ```
 
+`[Aspect]`は構造体にも付与できます。
+
 ### 2. Adviceメソッドの実装
-Aspectクラス内に `public`、戻り値 `void` のAdviceメソッドを実装し、`Advice`属性とPointcut属性を付与します。各Adviceには、メソッドまたはその宣言型に1つ以上のPointcut属性が必要です。  
+Aspectクラスまたは構造体内に `public`、戻り値 `void` のAdviceメソッドを実装し、`Advice`属性とPointcut属性を付与します。各Adviceには、メソッドまたはその宣言型に1つ以上のPointcut属性が必要です。
 下記サンプルでは後述の`RegexPointcut`を使用して、メソッド名に`TestMethod`を含むメソッドに対してアドバイスを適用しています。  
 ```.cs
 [Advice(JoinPoint.Before)]
@@ -148,10 +155,67 @@ public static void AfterThrowingAdvice()
 }
 ```
 
+### Around
+
+Around Adviceは対象メソッドの実行をラップします。Adviceメソッドに`[PointcutProceed]`を付けたパラメータをちょうど1つ用意し、`Proceed()`を呼び出すことで次のAround Adviceまたは元のメソッドを実行します。Around Adviceでは`Proceed()`を必ず1回だけ呼び出してください。
+
+戻り値が`void`のメソッドには`ProceedingContext`を使用します。
+
+```.cs
+[Advice(JoinPoint.Around)]
+[MethodNamePointcut("TestMethod")]
+public static void AroundAdvice([PointcutProceed] ProceedingContext proceed)
+{
+    Debug.Log("before");
+    proceed.Proceed();
+    Debug.Log("after");
+}
+```
+
+戻り値があるメソッドには`ProceedingContext<T>`を使用し、`Proceed()`の後に結果を参照できます。
+
+```.cs
+[Advice(JoinPoint.Around)]
+[MethodNamePointcut("GetValue")]
+public static void AroundAdvice([PointcutProceed] ProceedingContext<int> proceed)
+{
+    proceed.Proceed();
+    Debug.Log($"return value: {proceed.ReturnValue}");
+}
+```
+
+`unsafeInjection: true`を指定すると、`UnsafeProceedingContext<T>`の書き込み可能な`ReturnValue`で結果を変更できます。
+
 ## Pointcut属性
 
 Pointcut属性は、Adviceメソッドが適用されるメソッドを指定します。  
 複数条件を設定でき、AND条件でマッチングされます。
+
+### 直接指定Pointcut
+
+以下のPointcutは、正規表現を作成せずにメソッドのメタデータへマッチングします。複数のPointcutを指定した場合はAND条件でマッチングされます。
+
+| Pointcut | マッチング対象 |
+| --- | --- |
+| `MethodNamePointcut` | 対象メソッド名 |
+| `DeclaringTypePointcut` | 宣言型の名前または型 |
+| `AttributeTypePointcut` | 対象メソッドに付与された属性型 |
+| `DeclaringAttributeTypePointcut` | 宣言型に付与された属性型 |
+| `GenericParameterNamePointcut` | ジェネリックパラメータ名。繰り返しインデックスに対応 |
+| `ParameterTypePointcut` | パラメータ型の名前または型。繰り返しインデックスに対応 |
+| `ReturnTypePointcut` | 戻り値型の名前または型 |
+
+例えば、以下のように指定できます。
+
+```.cs
+[Advice(JoinPoint.Before)]
+[MethodNamePointcut("GetValue")]
+[ReturnTypePointcut(typeof(int))]
+public static void BeforeGetValue()
+{
+    // int GetValueメソッドに対する処理
+}
+```
 
 ### RegexPointcut
 
@@ -320,6 +384,12 @@ public static void AfterThrowingAdvice([PointcutThrown] Exception exception)
 }
 ```
 
+#### PointcutProceed
+
+Around Adviceの実行コンテキストを取得します。パラメータに`[PointcutProceed]`を付与し、戻り値が`void`のメソッドには`ProceedingContext`、戻り値があるメソッドには`ProceedingContext<T>`を使用します。
+
+`Proceed()`は次のAround Adviceまたは対象メソッドを実行します。必ず1回だけ呼び出してください。`ProceedingContext<T>.ReturnValue`は`Proceed()`後に読み取れます。`unsafeInjection: true`を指定した場合は`UnsafeProceedingContext<T>`で戻り値を変更できます。
+
 #### PointcutGenericBind
 
 ジェネリックパラメータのバインド方法を指定します。
@@ -340,6 +410,7 @@ public static void GenericAdvice<[PointcutGenericBind(GenericBinding.ParameterTy
 |-------------|--------------------------|
 | GenericParameterName | ジェネリックパラメータ名でバインドする。<br/>デフォルト挙動。 |
 | ParameterType | パラメータの型として使われる場合に、暗黙的にバインドする。 |
+| ReturnType | 対象メソッドの戻り値型からジェネリック引数を推論する。 |
 
 ## 高度な機能
 
@@ -356,6 +427,21 @@ public static void ModifyReturn(ref int parameter, [PointcutReturned] ref int re
     returnValue = 999;  // 戻り値を変更
 }
 ```
+
+### Adviceのスコープ
+
+Adviceのデフォルトは`AdviceScope.Invocation`で、メソッド呼び出しの境界ごとに適用されます。`AdviceScope.AsyncExecutionSequence`を指定すると、awaitやyieldによる中断・再開を含む1つの論理的な非同期実行シーケンスに対してAdviceを適用できます。
+
+```.cs
+[Advice(JoinPoint.Before, AdviceScope.AsyncExecutionSequence)]
+[MethodNamePointcut("RunAsync")]
+public static void BeforeAsyncSequence()
+{
+    Debug.Log("async sequence started");
+}
+```
+
+`AsyncExecutionSequence`ではAround Adviceはサポートされません。
 
 ### Aspectの適用範囲を明示化
 #### Assembly内と参照元にのみ適用
@@ -453,6 +539,8 @@ public static class ExceptionHandlingAspect
 
 ### Adviceの制約
 
-- Adviceは `[Aspect]` クラスに `public void`（staticなら `public static void`）として宣言し、`out` パラメータは使用できません。
+- Adviceは `[Aspect]` クラスまたは構造体に `public void`（staticなら `public static void`）として宣言し、`out` パラメータは使用できません。
 - static Aspectはそのまま利用できます。インスタンスAspectは抽象型・ジェネリック型にできず、対象メソッドごとに一致する `[Advice(JoinPoint.Before)]` 付き `public` コンストラクタがちょうど1つ必要です。そのAspectのインスタンスAdviceは、コンストラクタが生成したインスタンスを共有します。
+- Around Adviceには`[PointcutProceed]`パラメータがちょうど1つ必要で、`Proceed()`を必ず1回だけ呼び出してください。`PointcutReturned`と`PointcutThrown`は使用できません。
+- Around Adviceはコンストラクタには適用できず、`AsyncExecutionSequence`のAdviceにも適用できません。
 - Adviceの宣言や対象メソッドとの型バインディングに誤りがある場合は、Unityのコンパイルログにエラーが出力されます。
