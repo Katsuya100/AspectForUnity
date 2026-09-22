@@ -1,0 +1,21 @@
+{
+    "name": "Katuusagi.AspectForUnity.Tests",
+    "rootNamespace": "Katuusagi.AspectForUnity.Tests",
+    "references": [
+        "GUID:27619889b8ba8c24980f49ee34dbb44a",
+        "GUID:8a59037309408254e8c4b2fd65ab9491",
+        "GUID:7185de3f380993a4da1fe5d0a4c79d11",
+        "GUID:cc698119c860f8a43b21cd2ddd1401ed"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": true,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
