@@ -539,7 +539,6 @@ public static class ExceptionHandlingAspect
 - **Mono.Cecil**: Used for reading and writing IL code
 - **Attribute-based Configuration**: Uses attributes to define aspects and advice
 - **Target Assemblies**: Processes assemblies that reference `Katuusagi.AspectForUnity`
-- **Method Transformation**: Moves the original body to a generated method and rebuilds the original method as the advice wrapper
 
 ### Advice Constraints
 

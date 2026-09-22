@@ -535,7 +535,6 @@ public static class ExceptionHandlingAspect
 - **Mono.Cecil**: ILコードの読み取りと書き込みに使用
 - **属性ベースの設定**: アスペクトとアドバイスの定義に属性を使用
 - **対象Assembly**: `Katuusagi.AspectForUnity` を参照するAssemblyを処理
-- **メソッド変換**: 元の本体を生成メソッドへ移し、元のメソッドをAdvice呼び出し用ラッパーとして再構成
 
 ### Adviceの制約
 
