@@ -1224,9 +1224,13 @@ namespace Katuusagi.AspectForUnity.Editor
                 ilProcessor.InsertBefore(originalStart, Instruction.Create(OpCodes.Stfld, info.StartedField));
 
                 VariableDefinition beforeParameters = null;
+                VariableDefinition beforeObjectArray = null;
+                Instruction beforeParameterTryStart = null;
                 if (beforeAdvices.Any(v => v.HasPointcutParameters))
                 {
-                    beforeParameters = AppendStateMachineParameterArrayBefore(ilProcessor, body, originalStart, info);
+                    beforeParameters = AppendStateMachineParameterArrayBefore(ilProcessor, body, originalStart, info,
+                                                                              out beforeObjectArray,
+                                                                              out beforeParameterTryStart);
                 }
 
                 foreach (var advice in beforeAdvices)
@@ -1235,6 +1239,13 @@ namespace Katuusagi.AspectForUnity.Editor
                 }
 
                 ilProcessor.InsertBefore(originalStart, resume);
+                if (beforeParameters != null)
+                {
+                    AppendStateMachineParameterArrayReturnFinally(ilProcessor, body,
+                                                                  beforeObjectArray,
+                                                                  beforeParameterTryStart,
+                                                                  resume);
+                }
 
                 if (info.Kind == AsyncExecutionKind.Async)
                 {
@@ -1426,42 +1437,6 @@ namespace Katuusagi.AspectForUnity.Editor
             }
         }
 
-        private VariableDefinition AppendStateMachineParameterArray(ILProcessor ilProcessor,
-                                                                      MethodBody body,
-                                                                      AsyncExecutionInfo info)
-        {
-            var objectArray = new VariableDefinition(_objectArray);
-            body.Variables.Add(objectArray);
-
-            ilProcessor.Append(ILPPUtils.LoadLiteral(info.SourceMethod.Parameters.Count));
-            ilProcessor.Emit(OpCodes.Newarr, _mainModule.TypeSystem.Object);
-            ilProcessor.Append(ILPPUtils.SetLocal(objectArray));
-
-            for (int i = 0; i < info.SourceMethod.Parameters.Count; i++)
-            {
-                var parameter = info.SourceMethod.Parameters[i];
-                var field = info.ParameterFields[parameter.Name];
-                ilProcessor.Append(ILPPUtils.LoadLocal(objectArray));
-                ilProcessor.Append(ILPPUtils.LoadLiteral(i));
-                AppendLoadStateMachineField(ilProcessor, field, parameter.ParameterType.IsByReference);
-                var fieldType = field.FieldType.IsByReference ? ((ByReferenceType)field.FieldType).ElementType : field.FieldType;
-                if (fieldType.IsValueType || fieldType.IsGenericParameter)
-                {
-                    ilProcessor.Emit(OpCodes.Box, fieldType);
-                }
-
-                ilProcessor.Emit(OpCodes.Stelem_Ref);
-            }
-
-            var parameters = new VariableDefinition(_parameterArray);
-            body.Variables.Add(parameters);
-            ilProcessor.Append(ILPPUtils.LoadLiteral(info.SourceMethod.Parameters.Count));
-            ilProcessor.Append(ILPPUtils.LoadLocal(objectArray));
-            ilProcessor.Emit(OpCodes.Newobj, _parameterArrayCtor);
-            ilProcessor.Append(ILPPUtils.SetLocal(parameters));
-            return parameters;
-        }
-
         private bool InjectAsyncCompletionAdvice(AsyncExecutionInfo info,
                                                  Dictionary<TypeReference, FieldDefinition> aspectFields,
                                                  IReadOnlyList<AdviceInfo> afterReturningAdvices,
@@ -1521,9 +1496,13 @@ namespace Katuusagi.AspectForUnity.Editor
                              Instruction.Create(OpCodes.Stfld, info.CompletedField));
 
                 VariableDefinition parameters = null;
+                VariableDefinition objectArray = null;
+                Instruction parameterTryStart = null;
                 if (relevantAdvices.Any(v => v.HasPointcutParameters))
                 {
-                    parameters = AppendStateMachineParameterArrayBefore(ilProcessor, body, instruction, info);
+                    parameters = AppendStateMachineParameterArrayBefore(ilProcessor, body, instruction, info,
+                                                                        out objectArray,
+                                                                        out parameterTryStart);
                 }
 
                 VariableDefinition returned = null;
@@ -1563,6 +1542,13 @@ namespace Katuusagi.AspectForUnity.Editor
                 }
 
                 ilProcessor.InsertBefore(instruction, completionEnd);
+                if (parameters != null)
+                {
+                    AppendStateMachineParameterArrayReturnFinally(ilProcessor, body,
+                                                                  objectArray,
+                                                                  parameterTryStart,
+                                                                  completionEnd);
+                }
 
                 if (calledMethod.HasThis &&
                     calledMethod.DeclaringType.IsValueType &&
@@ -1613,9 +1599,13 @@ namespace Katuusagi.AspectForUnity.Editor
                              Instruction.Create(OpCodes.Stfld, info.CompletedField));
 
                 VariableDefinition parameters = null;
+                VariableDefinition objectArray = null;
+                Instruction parameterTryStart = null;
                 if (afterAdvices.Any(v => v.HasPointcutParameters))
                 {
-                    parameters = AppendStateMachineParameterArrayBefore(ilProcessor, body, completionInstruction, info);
+                    parameters = AppendStateMachineParameterArrayBefore(ilProcessor, body, completionInstruction, info,
+                                                                        out objectArray,
+                                                                        out parameterTryStart);
                 }
 
                 foreach (var advice in afterAdvices)
@@ -1624,6 +1614,13 @@ namespace Katuusagi.AspectForUnity.Editor
                 }
 
                 ilProcessor.InsertBefore(completionInstruction, reload);
+                if (parameters != null)
+                {
+                    AppendStateMachineParameterArrayReturnFinally(ilProcessor, body,
+                                                                  objectArray,
+                                                                  parameterTryStart,
+                                                                  reload);
+                }
             }
         }
 
@@ -1677,9 +1674,13 @@ namespace Katuusagi.AspectForUnity.Editor
                          Instruction.Create(OpCodes.Stfld, info.CompletedField));
 
             VariableDefinition parameters = null;
+            VariableDefinition objectArray = null;
+            Instruction parameterTryStart = null;
             if (afterThrowingAdvices.Concat(afterAdvices).Any(v => v.HasPointcutParameters))
             {
-                parameters = AppendStateMachineParameterArrayBefore(ilProcessor, body, handlerEnd, info);
+                parameters = AppendStateMachineParameterArrayBefore(ilProcessor, body, handlerEnd, info,
+                                                                    out objectArray,
+                                                                    out parameterTryStart);
             }
 
             foreach (var advice in afterThrowingAdvices)
@@ -1693,6 +1694,13 @@ namespace Katuusagi.AspectForUnity.Editor
             }
 
             ilProcessor.InsertBefore(handlerEnd, skip);
+            if (parameters != null)
+            {
+                AppendStateMachineParameterArrayReturnFinally(ilProcessor, body,
+                                                              objectArray,
+                                                              parameterTryStart,
+                                                              skip);
+            }
             ilProcessor.InsertBefore(handlerEnd, Instruction.Create(OpCodes.Rethrow));
             ilProcessor.Append(returnLabel);
             ilProcessor.Append(ILPPUtils.LoadLocal(returnValue));
@@ -1710,14 +1718,18 @@ namespace Katuusagi.AspectForUnity.Editor
         private VariableDefinition AppendStateMachineParameterArrayBefore(ILProcessor ilProcessor,
                                                                             MethodBody body,
                                                                             Instruction before,
-                                                                            AsyncExecutionInfo info)
+                                                                            AsyncExecutionInfo info,
+                                                                            out VariableDefinition objectArray,
+                                                                            out Instruction tryStart)
         {
-            var objectArray = new VariableDefinition(_objectArray);
+            objectArray = new VariableDefinition(_objectArray);
             body.Variables.Add(objectArray);
             InsertBefore(ilProcessor, before,
                          ILPPUtils.LoadLiteral(info.SourceMethod.Parameters.Count),
-                         Instruction.Create(OpCodes.Newarr, _mainModule.TypeSystem.Object),
+                         Instruction.Create(OpCodes.Call, _objectArrayPoolRent),
                          ILPPUtils.SetLocal(objectArray));
+            tryStart = Instruction.Create(OpCodes.Nop);
+            ilProcessor.InsertBefore(before, tryStart);
 
             for (int i = 0; i < info.SourceMethod.Parameters.Count; i++)
             {
@@ -1747,6 +1759,29 @@ namespace Katuusagi.AspectForUnity.Editor
                          Instruction.Create(OpCodes.Newobj, _parameterArrayCtor),
                          ILPPUtils.SetLocal(parameters));
             return parameters;
+        }
+
+        private void AppendStateMachineParameterArrayReturnFinally(ILProcessor ilProcessor,
+                                                                     MethodBody body,
+                                                                     VariableDefinition objectArray,
+                                                                     Instruction tryStart,
+                                                                     Instruction end)
+        {
+            var finallyStart = Instruction.Create(OpCodes.Nop);
+            InsertBefore(ilProcessor, end,
+                         Instruction.Create(OpCodes.Leave, end),
+                         finallyStart,
+                         ILPPUtils.LoadLocal(objectArray),
+                         Instruction.Create(OpCodes.Call, _objectArrayPoolReturn),
+                         Instruction.Create(OpCodes.Endfinally));
+
+            body.ExceptionHandlers.Add(new ExceptionHandler(ExceptionHandlerType.Finally)
+            {
+                TryStart = tryStart,
+                TryEnd = finallyStart,
+                HandlerStart = finallyStart,
+                HandlerEnd = end,
+            });
         }
 
         private static bool IsLoadZero(Instruction instruction)

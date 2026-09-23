@@ -10,6 +10,50 @@ namespace Katuusagi.AspectForUnity.Tests
     public class AsyncExecutionSequenceTest
     {
         [Test]
+        public void AsyncPointcutParametersPreserveValuesBoxingTimingAndAdviceExceptions()
+        {
+            StateMachineParameterTestAspect.Reset();
+            StateMachineParameterTestAspect.ThrowNext = true;
+
+            var exception = Assert.Throws<InvalidOperationException>(() =>
+                AsyncPointcutParameters(17, "first").GetAwaiter().GetResult());
+
+            Assert.AreEqual("state machine advice failure", exception.Message);
+            Assert.AreEqual(1, StateMachineParameterTestAspect.BeforeCount);
+            Assert.AreEqual(17, StateMachineParameterTestAspect.LastValue);
+            Assert.AreEqual("first", StateMachineParameterTestAspect.LastText);
+            Assert.IsFalse(StateMachineParameterTestAspect.BodyHadStarted);
+            Assert.AreEqual(0, StateMachineParameterTestAspect.AfterCount);
+
+            var result = AsyncPointcutParameters(23, "second").GetAwaiter().GetResult();
+
+            Assert.AreEqual(23, result);
+            Assert.AreEqual(2, StateMachineParameterTestAspect.BeforeCount);
+            Assert.AreEqual(23, StateMachineParameterTestAspect.LastValue);
+            Assert.AreEqual("second", StateMachineParameterTestAspect.LastText);
+            Assert.IsFalse(StateMachineParameterTestAspect.BodyHadStarted);
+            Assert.IsTrue(StateMachineParameterTestAspect.BodyStarted);
+            Assert.AreEqual(1, StateMachineParameterTestAspect.AfterCount);
+            Assert.AreEqual(23, StateMachineParameterTestAspect.AfterValue);
+            Assert.AreEqual("second", StateMachineParameterTestAspect.AfterText);
+            Assert.IsTrue(StateMachineParameterTestAspect.AfterHadStarted);
+        }
+
+        [Test]
+        public void IteratorPointcutParametersAreAvailableAtCompletion()
+        {
+            StateMachineParameterTestAspect.Reset();
+
+            var enumerator = CoroutinePointcutParameters(31);
+
+            Assert.IsTrue(enumerator.MoveNext());
+            Assert.AreEqual(31, enumerator.Current);
+            Assert.IsFalse(enumerator.MoveNext());
+            Assert.AreEqual(1, StateMachineParameterTestAspect.IteratorAfterCount);
+            Assert.AreEqual(31, StateMachineParameterTestAspect.IteratorAfterValue);
+        }
+
+        [Test]
         public void AsyncAdviceRunsOnceAcrossAwaitAndUsesLogicalResult()
         {
             AsyncExecutionSequenceTestAspect.Reset();
@@ -195,6 +239,18 @@ namespace Katuusagi.AspectForUnity.Tests
             await Task.Delay(1).ConfigureAwait(false);
             await Task.Delay(1).ConfigureAwait(false);
             return 7;
+        }
+
+        public async Task<int> AsyncPointcutParameters(int value, string text)
+        {
+            await Task.Delay(1).ConfigureAwait(false);
+            StateMachineParameterTestAspect.BodyStarted = true;
+            return value;
+        }
+
+        public IEnumerator CoroutinePointcutParameters(int value)
+        {
+            yield return value;
         }
 
         public async Task AsyncFailure()

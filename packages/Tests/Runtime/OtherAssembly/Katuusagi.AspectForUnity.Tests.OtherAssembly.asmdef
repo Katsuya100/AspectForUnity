@@ -5,6 +5,9 @@
         "GUID:7185de3f380993a4da1fe5d0a4c79d11",
         "GUID:cc698119c860f8a43b21cd2ddd1401ed"
     ],
+    "optionalUnityReferences": [
+        "TestAssemblies"
+    ],
     "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,

@@ -11,7 +11,7 @@ namespace Katuusagi.AspectForUnity
 
         public static void Return(object[] array)
         {
-            ArrayPool<object>.Shared.Return(array);
+            ArrayPool<object>.Shared.Return(array, clearArray: true);
         }
     }
 }

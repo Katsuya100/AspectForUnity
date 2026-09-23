@@ -222,4 +222,5 @@ namespace Katuusagi.AspectForUnity.Tests.GlobalAssembly
             CoroutineAfterCount++;
         }
     }
+
 }

@@ -12,7 +12,7 @@ namespace Katuusagi.AspectForUnity
         {
             get
             {
-                if (_parameters == null)
+                if (_length < 0 || (uint)index >= (uint)_length || _parameters == null)
                 {
                     throw new IndexOutOfRangeException($"invalid index: {index}");
                 }
@@ -29,7 +29,12 @@ namespace Katuusagi.AspectForUnity
 
         public IEnumerator GetEnumerator()
         {
-            return _parameters?.GetEnumerator() ?? Array.Empty<object>().GetEnumerator();
+            if (_parameters == null || _length <= 0)
+            {
+                return Array.Empty<object>().GetEnumerator();
+            }
+
+            return (IEnumerator)new ArraySegment<object>(_parameters, 0, _length).GetEnumerator();
         }
     }
 }
