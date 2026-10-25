@@ -649,6 +649,33 @@ namespace Katuusagi.AspectForUnity.Editor
             return method.Parameters.Count <= 1;
         }
 
+        private ExceptionHandler FindAsyncExceptionHandler(AsyncExecutionInfo info)
+        {
+            var body = info.MoveNext.Body;
+            foreach (var handler in body.ExceptionHandlers.Where(v => v.HandlerType == ExceptionHandlerType.Catch))
+            {
+                var startIndex = body.Instructions.IndexOf(handler.HandlerStart);
+                var endIndex = handler.HandlerEnd == null
+                    ? body.Instructions.Count
+                    : body.Instructions.IndexOf(handler.HandlerEnd);
+                if (startIndex < 0 || endIndex < 0)
+                {
+                    continue;
+                }
+
+                for (int i = startIndex; i < endIndex; i++)
+                {
+                    if (body.Instructions[i].Operand is MethodReference calledMethod &&
+                        IsAsyncBuilderCompletionMethod(calledMethod, info.BuilderField, "SetException"))
+                    {
+                        return handler;
+                    }
+                }
+            }
+
+            return null;
+        }
+
         private static IPointcutInfo CreatePointcutInfo(CustomAttribute pointcut)
         {
             var pointcutType = pointcut.AttributeType.FullName;
@@ -865,7 +892,7 @@ namespace Katuusagi.AspectForUnity.Editor
                     var hasAfterReturning = afterReturningAdvices.Any();
                     var hasAfterThrowing = afterThrowingAdvices.Any();
                     var hasAfter = afterAdvices.Any();
-                    var needsNormalExit = hasAfterReturning || hasAfter || hasPointcutParameters;
+                    var needsNormalExit = hasAfterReturning || hasAfterThrowing || hasAfter || hasPointcutParameters;
                     var hasResultVariable = method.HasReturn() && needsNormalExit;
 
                     VariableDefinition resultVariable = null;
@@ -962,10 +989,26 @@ namespace Katuusagi.AspectForUnity.Editor
                             var parameter = method.Parameters[i];
                             ilProcessor.Emit(OpCodes.Dup);
                             ilProcessor.Append(ILPPUtils.LoadLiteral(i));
-                            ilProcessor.Append(ILPPUtils.LoadArgument(parameter));
-                            if (parameter.ParameterType.IsValueType || parameter.ParameterType.IsGenericParameter)
+                            if (parameter.IsOut)
                             {
-                                ilProcessor.Emit(OpCodes.Box, parameter.ParameterType);
+                                ilProcessor.Emit(OpCodes.Ldnull);
+                            }
+                            else if (parameter.ParameterType is ByReferenceType byReference)
+                            {
+                                ilProcessor.Append(ILPPUtils.LoadArgument(parameter));
+                                ilProcessor.Append(ILPPUtils.LoadIndirect(byReference.ElementType));
+                                if (byReference.ElementType.IsValueType || byReference.ElementType.IsGenericParameter)
+                                {
+                                    ilProcessor.Emit(OpCodes.Box, byReference.ElementType);
+                                }
+                            }
+                            else
+                            {
+                                ilProcessor.Append(ILPPUtils.LoadArgument(parameter));
+                                if (parameter.ParameterType.IsValueType || parameter.ParameterType.IsGenericParameter)
+                                {
+                                    ilProcessor.Emit(OpCodes.Box, parameter.ParameterType);
+                                }
                             }
 
                             ilProcessor.Emit(OpCodes.Stelem_Ref);
@@ -1216,7 +1259,8 @@ namespace Katuusagi.AspectForUnity.Editor
                 var originalStart = originalInstructions[0];
 
                 var resume = Instruction.Create(OpCodes.Nop);
-                ilProcessor.InsertBefore(originalStart, Instruction.Create(OpCodes.Ldarg_0));
+                var beforeStart = Instruction.Create(OpCodes.Ldarg_0);
+                ilProcessor.InsertBefore(originalStart, beforeStart);
                 ilProcessor.InsertBefore(originalStart, Instruction.Create(OpCodes.Ldfld, info.StartedField));
                 ilProcessor.InsertBefore(originalStart, Instruction.Create(OpCodes.Brtrue, resume));
                 ilProcessor.InsertBefore(originalStart, Instruction.Create(OpCodes.Ldarg_0));
@@ -1249,6 +1293,17 @@ namespace Katuusagi.AspectForUnity.Editor
 
                 if (info.Kind == AsyncExecutionKind.Async)
                 {
+                    if (beforeAdvices.Any())
+                    {
+                        var asyncExceptionHandler = FindAsyncExceptionHandler(info);
+                        if (asyncExceptionHandler != null)
+                        {
+                            // Include the injected entry advice in the compiler-generated catch so
+                            // its exception reaches the existing builder.SetException path.
+                            asyncExceptionHandler.TryStart = beforeStart;
+                        }
+                    }
+
                     hasError = InjectAsyncCompletionAdvice(info,
                                                            aspectFields,
                                                            afterReturningAdvices,
@@ -1257,8 +1312,8 @@ namespace Katuusagi.AspectForUnity.Editor
                 }
                 else
                 {
-                    InjectIteratorCompletionAdvice(info, aspectFields, afterAdvices);
-                    if (afterThrowingAdvices.Any())
+                    InjectIteratorCompletionAdvice(info, aspectFields, afterReturningAdvices, afterAdvices);
+                    if (afterThrowingAdvices.Any() || afterAdvices.Any())
                     {
                         InjectIteratorExceptionAdvice(info, aspectFields, afterThrowingAdvices, afterAdvices);
                     }
@@ -1327,6 +1382,13 @@ namespace Katuusagi.AspectForUnity.Editor
             {
                 if (ValidateAdvice(info.SourceMethod, advice, info.AsyncResultType))
                 {
+                    hasError = true;
+                }
+
+                if (info.AsyncResultType == null &&
+                    advice.Method.Resolve().GenericParameters.Any(v => GetBinding(v) == GenericBinding.ReturnType))
+                {
+                    ILPPUtils.LogError("ASPECT2615", "AspectForUnity", $"Cannot bind ReturnType for asynchronous execution advice method \"{advice.Method.FullName}\" because target \"{info.SourceMethod.FullName}\" has no logical result type.", advice.Method);
                     hasError = true;
                 }
 
@@ -1475,7 +1537,7 @@ namespace Katuusagi.AspectForUnity.Editor
                 var argumentTypeOverrides = isSetResult &&
                                              calledMethod.Parameters.Count == 1 &&
                                              info.AsyncResultType != null
-                    ? new[] { info.AsyncResultType }
+                    ? new[] { MapAsyncGenericArgument(info, info.AsyncResultType) }
                     : null;
                 var argumentLocals = StoreCallArgumentsBefore(ilProcessor,
                                                                body,
@@ -1566,9 +1628,10 @@ namespace Katuusagi.AspectForUnity.Editor
 
         private void InjectIteratorCompletionAdvice(AsyncExecutionInfo info,
                                                     Dictionary<TypeReference, FieldDefinition> aspectFields,
+                                                    IReadOnlyList<AdviceInfo> afterReturningAdvices,
                                                     IReadOnlyList<AdviceInfo> afterAdvices)
         {
-            if (!afterAdvices.Any())
+            if (!afterReturningAdvices.Any() && !afterAdvices.Any())
             {
                 return;
             }
@@ -1601,16 +1664,54 @@ namespace Katuusagi.AspectForUnity.Editor
                 VariableDefinition parameters = null;
                 VariableDefinition objectArray = null;
                 Instruction parameterTryStart = null;
-                if (afterAdvices.Any(v => v.HasPointcutParameters))
+                if (afterReturningAdvices.Concat(afterAdvices).Any(v => v.HasPointcutParameters))
                 {
                     parameters = AppendStateMachineParameterArrayBefore(ilProcessor, body, completionInstruction, info,
                                                                         out objectArray,
                                                                         out parameterTryStart);
                 }
 
-                foreach (var advice in afterAdvices)
+                if (afterReturningAdvices.Any() && afterAdvices.Any())
                 {
-                    AppendCallStateMachineAdvice(ilProcessor, info, advice, aspectFields, null, parameters, null, completionInstruction);
+                    var afterReturningTryStart = Instruction.Create(OpCodes.Nop);
+                    var afterReturningTryEnd = Instruction.Create(OpCodes.Nop);
+                    var afterReturningFinallyStart = Instruction.Create(OpCodes.Nop);
+                    var normalAfterReturning = Instruction.Create(OpCodes.Nop);
+                    ilProcessor.InsertBefore(completionInstruction, afterReturningTryStart);
+                    foreach (var advice in afterReturningAdvices)
+                    {
+                        AppendCallStateMachineAdvice(ilProcessor, info, advice, aspectFields, null, parameters, null, completionInstruction);
+                    }
+
+                    ilProcessor.InsertBefore(completionInstruction, Instruction.Create(OpCodes.Leave, normalAfterReturning));
+                    ilProcessor.InsertBefore(completionInstruction, afterReturningTryEnd);
+                    ilProcessor.InsertBefore(completionInstruction, afterReturningFinallyStart);
+                    foreach (var advice in afterAdvices)
+                    {
+                        AppendCallStateMachineAdvice(ilProcessor, info, advice, aspectFields, null, parameters, null, completionInstruction);
+                    }
+
+                    ilProcessor.InsertBefore(completionInstruction, Instruction.Create(OpCodes.Endfinally));
+                    ilProcessor.InsertBefore(completionInstruction, normalAfterReturning);
+                    body.ExceptionHandlers.Add(new ExceptionHandler(ExceptionHandlerType.Finally)
+                    {
+                        TryStart = afterReturningTryStart,
+                        TryEnd = afterReturningTryEnd,
+                        HandlerStart = afterReturningFinallyStart,
+                        HandlerEnd = normalAfterReturning,
+                    });
+                }
+                else
+                {
+                    foreach (var advice in afterReturningAdvices)
+                    {
+                        AppendCallStateMachineAdvice(ilProcessor, info, advice, aspectFields, null, parameters, null, completionInstruction);
+                    }
+
+                    foreach (var advice in afterAdvices)
+                    {
+                        AppendCallStateMachineAdvice(ilProcessor, info, advice, aspectFields, null, parameters, null, completionInstruction);
+                    }
                 }
 
                 ilProcessor.InsertBefore(completionInstruction, reload);
@@ -1918,14 +2019,19 @@ namespace Katuusagi.AspectForUnity.Editor
                         switch (binding)
                         {
                             case GenericBinding.GenericParameterName:
-                                genericArgument = FindBoundGeneicArgumentByName(sourceMethod, adviceGenericParameter.Name);
+                                genericArgument = MapAsyncGenericArgument(
+                                    info,
+                                    FindBoundGeneicArgumentByName(sourceMethod, adviceGenericParameter.Name));
                                 break;
                             case GenericBinding.ParameterType:
                                 using (ThreadStaticListPool<TypeReference>.Get(out var genericArgumentsByParameter))
                                 {
                                     FindBoundGeneicArgumentByParameterType(sourceMethod, adviceMethod, adviceGenericParameter, genericArgumentsByParameter);
-                                    genericArgument = genericArgumentsByParameter.FirstOrDefault();
+                                    genericArgument = MapAsyncGenericArgument(info, genericArgumentsByParameter.FirstOrDefault());
                                 }
+                                break;
+                            case GenericBinding.ReturnType:
+                                genericArgument = MapAsyncGenericArgument(info, info.AsyncResultType);
                                 break;
                         }
 
@@ -2066,6 +2172,30 @@ namespace Katuusagi.AspectForUnity.Editor
             {
                 Add(Instruction.Create(OpCodes.Call, adviceMethodRef));
             }
+        }
+
+        private TypeReference MapAsyncGenericArgument(AsyncExecutionInfo info, TypeReference type)
+        {
+            if (type == null || !info.StateMachineType.HasGenericParameters)
+            {
+                return type;
+            }
+
+            var map = new Dictionary<GenericParameter, TypeReference>();
+            var typeParameters = info.SourceMethod.DeclaringType.GenericParameters;
+            for (int i = 0; i < typeParameters.Count && i < info.StateMachineType.GenericParameters.Count; i++)
+            {
+                map[typeParameters[i]] = info.StateMachineType.GenericParameters[i];
+            }
+
+            var methodParameters = info.SourceMethod.GenericParameters;
+            var methodOffset = typeParameters.Count;
+            for (int i = 0; i < methodParameters.Count && methodOffset + i < info.StateMachineType.GenericParameters.Count; i++)
+            {
+                map[methodParameters[i]] = info.StateMachineType.GenericParameters[methodOffset + i];
+            }
+
+            return SubstituteType(type, map);
         }
 
         private void AppendLoadSourceMethodBase(ILProcessor ilProcessor, MethodDefinition method, Instruction insertBefore = null)
@@ -2620,7 +2750,10 @@ namespace Katuusagi.AspectForUnity.Editor
             var parameters = new List<ParameterDefinition>();
             if (method.HasThis)
             {
-                parameters.Add(new ParameterDefinition("target", ParameterAttributes.None, info.TargetField.FieldType));
+                var targetType = IsValueTypeInstanceMethod(method)
+                    ? new ByReferenceType(info.TargetField.FieldType)
+                    : info.TargetField.FieldType;
+                parameters.Add(new ParameterDefinition("target", ParameterAttributes.None, targetType));
             }
 
             foreach (var parameter in method.Parameters)
@@ -2640,7 +2773,12 @@ namespace Katuusagi.AspectForUnity.Editor
             if (method.HasThis)
             {
                 il.Emit(OpCodes.Ldarg_0);
-                il.Append(ILPPUtils.LoadArgument(parameters[argumentIndex++]));
+                var targetParameter = parameters[argumentIndex++];
+                il.Append(ILPPUtils.LoadArgument(targetParameter));
+                if (IsValueTypeInstanceMethod(method))
+                {
+                    il.Append(ILPPUtils.LoadIndirect(info.TargetField.FieldType));
+                }
                 il.Emit(OpCodes.Stfld, CreateStateFieldReference(info.TargetField, stateType));
             }
 
@@ -2966,6 +3104,7 @@ namespace Katuusagi.AspectForUnity.Editor
 
             var tryStart = Instruction.Create(OpCodes.Nop);
             var handlerStart = Instruction.Create(OpCodes.Nop);
+            var successExit = Instruction.Create(OpCodes.Nop);
             il.Append(tryStart);
             for (int i = 0; i < invokeAround.Length; i++)
             {
@@ -2978,12 +3117,11 @@ namespace Katuusagi.AspectForUnity.Editor
                 il.Emit(OpCodes.Ldarg_0);
                 il.Emit(OpCodes.Ldarg_2);
                 il.Emit(OpCodes.Call, CreateMethodReference(invokeAround[i], info.StateTypeInstance, info.GenericParameterMap));
-                if (info.HasReturn && !info.ReturnsByReference)
+                if (info.ReturnsByReference)
                 {
-                    il.Emit(OpCodes.Ldarg_0);
-                    il.Emit(OpCodes.Ldflda, CreateStateFieldReference(info.ReturnValueField, stateType));
+                    il.Append(ILPPUtils.SetLocal(referenceReturn));
                 }
-                il.Emit(OpCodes.Ret);
+                il.Emit(OpCodes.Leave, successExit);
                 il.Append(next);
             }
 
@@ -2996,7 +3134,14 @@ namespace Katuusagi.AspectForUnity.Editor
             if (method.HasThis)
             {
                 il.Emit(OpCodes.Ldarg_0);
-                il.Emit(OpCodes.Ldfld, CreateStateFieldReference(info.TargetField, stateType));
+                if (IsValueTypeInstanceMethod(method))
+                {
+                    il.Emit(OpCodes.Ldflda, CreateStateFieldReference(info.TargetField, stateType));
+                }
+                else
+                {
+                    il.Emit(OpCodes.Ldfld, CreateStateFieldReference(info.TargetField, stateType));
+                }
             }
 
             for (int i = 0; i < info.ParameterFields.Length; i++)
@@ -3020,21 +3165,18 @@ namespace Katuusagi.AspectForUnity.Editor
                     il.Emit(OpCodes.Pop);
                 }
 
-                il.Emit(OpCodes.Ret);
+                il.Emit(OpCodes.Leave, successExit);
             }
             else if (info.ReturnsByReference)
             {
                 il.Append(ILPPUtils.SetLocal(referenceReturn));
                 il.Emit(OpCodes.Pop);
-                il.Append(ILPPUtils.LoadLocal(referenceReturn));
-                il.Emit(OpCodes.Ret);
+                il.Emit(OpCodes.Leave, successExit);
             }
             else
             {
                 il.Emit(OpCodes.Stfld, CreateStateFieldReference(info.ReturnValueField, stateType));
-                il.Emit(OpCodes.Ldarg_0);
-                il.Emit(OpCodes.Ldflda, CreateStateFieldReference(info.ReturnValueField, stateType));
-                il.Emit(OpCodes.Ret);
+                il.Emit(OpCodes.Leave, successExit);
             }
 
             il.Append(handlerStart);
@@ -3044,14 +3186,27 @@ namespace Katuusagi.AspectForUnity.Editor
             il.Emit(OpCodes.Ldarg_0);
             il.Emit(OpCodes.Ldarg_2);
             il.Emit(OpCodes.Call, _mainModule.ImportReference(failProceed));
-            il.Append(ILPPUtils.LoadLocal(exception));
-            il.Emit(OpCodes.Throw);
+            il.Emit(OpCodes.Rethrow);
+            il.Append(successExit);
+            if (info.HasReturn)
+            {
+                if (info.ReturnsByReference)
+                {
+                    il.Append(ILPPUtils.LoadLocal(referenceReturn));
+                }
+                else
+                {
+                    il.Emit(OpCodes.Ldarg_0);
+                    il.Emit(OpCodes.Ldflda, CreateStateFieldReference(info.ReturnValueField, stateType));
+                }
+            }
+            il.Emit(OpCodes.Ret);
             proceed.Body.ExceptionHandlers.Add(new ExceptionHandler(ExceptionHandlerType.Catch)
             {
                 TryStart = tryStart,
                 TryEnd = handlerStart,
                 HandlerStart = handlerStart,
-                HandlerEnd = null,
+                HandlerEnd = successExit,
                 CatchType = _exceptionType,
             });
             return proceed;
@@ -3067,7 +3222,12 @@ namespace Katuusagi.AspectForUnity.Editor
                                                   SubstituteType(method.ReturnType, info.GenericParameterMap));
             if (method.HasThis)
             {
-                dispatcher.Parameters.Add(new ParameterDefinition("target", ParameterAttributes.None, SubstituteType(method.DeclaringType, info.GenericParameterMap)));
+                var targetType = SubstituteType(method.DeclaringType, info.GenericParameterMap);
+                if (IsValueTypeInstanceMethod(method))
+                {
+                    targetType = new ByReferenceType(targetType);
+                }
+                dispatcher.Parameters.Add(new ParameterDefinition("target", ParameterAttributes.None, targetType));
             }
 
             foreach (var parameter in method.Parameters)
@@ -3136,6 +3296,7 @@ namespace Katuusagi.AspectForUnity.Editor
 
             var tryStart = Instruction.Create(OpCodes.Nop);
             var handlerStart = Instruction.Create(OpCodes.Nop);
+            var successExit = Instruction.Create(OpCodes.Nop);
             il.Append(tryStart);
             il.Append(ILPPUtils.LoadLocal(state));
             il.Append(ILPPUtils.LoadLocal(generation));
@@ -3156,30 +3317,32 @@ namespace Katuusagi.AspectForUnity.Editor
             }
 
             AppendDispatcherCopyBack(il, dispatcher, method, info, state);
+            AppendTargetCopyBack(il, dispatcher, method, info, state);
             il.Append(ILPPUtils.LoadLocal(state));
             il.Emit(OpCodes.Call, CreatePoolMethod("Return", info));
-            if (info.HasReturn)
-            {
-                il.Append(ILPPUtils.LoadLocal(returnValue));
-            }
-
-            il.Emit(OpCodes.Ret);
+            il.Emit(OpCodes.Leave, successExit);
 
             il.Append(handlerStart);
             var exception = new VariableDefinition(_exceptionType);
             dispatcher.Body.Variables.Add(exception);
             il.Append(ILPPUtils.SetLocal(exception));
             AppendDispatcherCopyBack(il, dispatcher, method, info, state);
+            AppendTargetCopyBack(il, dispatcher, method, info, state);
             il.Append(ILPPUtils.LoadLocal(state));
             il.Emit(OpCodes.Call, CreatePoolMethod("Return", info));
-            il.Append(ILPPUtils.LoadLocal(exception));
-            il.Emit(OpCodes.Throw);
+            il.Emit(OpCodes.Rethrow);
+            il.Append(successExit);
+            if (info.HasReturn)
+            {
+                il.Append(ILPPUtils.LoadLocal(returnValue));
+            }
+            il.Emit(OpCodes.Ret);
             dispatcher.Body.ExceptionHandlers.Add(new ExceptionHandler(ExceptionHandlerType.Catch)
             {
                 TryStart = tryStart,
                 TryEnd = handlerStart,
                 HandlerStart = handlerStart,
-                HandlerEnd = null,
+                HandlerEnd = successExit,
                 CatchType = _exceptionType,
             });
             return CreateMethodReference(dispatcher, info.CallStateTypeInstance, info.GenericParameterMap);
@@ -3290,13 +3453,39 @@ namespace Katuusagi.AspectForUnity.Editor
             }
 
             il.Append(ILPPUtils.LoadLocal(state));
-            foreach (var parameter in dispatcher.Parameters.Where(v => v.ParameterType is ByReferenceType))
+            var parameterOffset = method.HasThis ? 1 : 0;
+            for (int i = 0; i < method.Parameters.Count; i++)
             {
-                il.Append(ILPPUtils.LoadArgument(parameter));
+                if (method.Parameters[i].ParameterType is ByReferenceType)
+                {
+                    il.Append(ILPPUtils.LoadArgument(dispatcher.Parameters[i + parameterOffset]));
+                }
             }
 
             var copyBack = info.CopyBack;
             il.Emit(OpCodes.Call, CreateMethodReference(copyBack, info.StateTypeInstance, info.GenericParameterMap));
+        }
+
+        private void AppendTargetCopyBack(ILProcessor il,
+                                           MethodDefinition dispatcher,
+                                           MethodDefinition method,
+                                           AroundGenerationInfo info,
+                                           VariableDefinition state)
+        {
+            if (!IsValueTypeInstanceMethod(method))
+            {
+                return;
+            }
+
+            il.Append(ILPPUtils.LoadArgument(dispatcher.Parameters[0]));
+            il.Append(ILPPUtils.LoadLocal(state));
+            il.Emit(OpCodes.Ldfld, CreateStateFieldReference(info.TargetField, info.StateType));
+            AppendStoreIndirect(il, info.TargetField.FieldType);
+        }
+
+        private static bool IsValueTypeInstanceMethod(MethodDefinition method)
+        {
+            return method.HasThis && method.DeclaringType.IsValueType;
         }
 
         private MethodReference CreatePoolMethod(string name, AroundGenerationInfo info)
@@ -4145,7 +4334,7 @@ namespace Katuusagi.AspectForUnity.Editor
                 var pointcutParameters = adviceMethod.Parameters.FirstOrDefault(HasPointcutParameters);
                 if (pointcutParameters.ParameterType.FullName != typeof(ParameterArray).FullName)
                 {
-                    ILPPUtils.LogError("ASPECT1108", "AspectForUnity", $"PointcutParameters parameter \"{pointcutParameters.Name}\" cannot be of type ParameterArray.", adviceInfo.Method);
+                    ILPPUtils.LogError("ASPECT1108", "AspectForUnity", $"PointcutParameters parameter \"{pointcutParameters.Name}\" must be of type ParameterArray.", adviceInfo.Method);
                     hasError = true;
                 }
             }
@@ -4209,7 +4398,7 @@ namespace Katuusagi.AspectForUnity.Editor
             bool hasError = false;
             if (adviceInfo.PointcutReturnedType != null)
             {
-                ILPPUtils.LogError("ASPECT1201", "AspectForUnity", $"Before advice method \"{adviceInfo.Method.FullName}\" cannot have PointcutReturn parameter.", adviceInfo.Method);
+                ILPPUtils.LogError("ASPECT1201", "AspectForUnity", $"Before advice method \"{adviceInfo.Method.FullName}\" cannot have PointcutReturned parameter.", adviceInfo.Method);
                 hasError = true;
             }
 
@@ -4228,7 +4417,7 @@ namespace Katuusagi.AspectForUnity.Editor
             var adviceMethod = adviceInfo.Method.Resolve();
             if (adviceInfo.PointcutThrownType != null)
             {
-                ILPPUtils.LogError("ASPECT1301", "AspectForUnity", $"Before advice method \"{adviceInfo.Method.FullName}\" cannot have PointcutThrown parameter.", adviceInfo.Method);
+                ILPPUtils.LogError("ASPECT1301", "AspectForUnity", $"AfterReturning advice method \"{adviceInfo.Method.FullName}\" cannot have PointcutThrown parameter.", adviceInfo.Method);
                 hasError = true;
             }
 
@@ -4247,7 +4436,7 @@ namespace Katuusagi.AspectForUnity.Editor
             var adviceMethod = adviceInfo.Method.Resolve();
             if (adviceInfo.PointcutReturnedType != null)
             {
-                ILPPUtils.LogError("ASPECT1401", "AspectForUnity", $"Before advice method \"{adviceInfo.Method.FullName}\" cannot have PointcutReturn parameter.", adviceInfo.Method);
+                ILPPUtils.LogError("ASPECT1401", "AspectForUnity", $"AfterThrowing advice method \"{adviceInfo.Method.FullName}\" cannot have PointcutReturned parameter.", adviceInfo.Method);
                 hasError = true;
             }
 
@@ -4279,13 +4468,13 @@ namespace Katuusagi.AspectForUnity.Editor
             var adviceMethod = adviceInfo.Method.Resolve();
             if (adviceInfo.PointcutReturnedType != null)
             {
-                ILPPUtils.LogError("ASPECT1501", "AspectForUnity", $"After advice method \"{adviceInfo.Method.FullName}\" cannot have PointcutReturn parameter.", adviceInfo.Method);
+                ILPPUtils.LogError("ASPECT1501", "AspectForUnity", $"After advice method \"{adviceInfo.Method.FullName}\" cannot have PointcutReturned parameter.", adviceInfo.Method);
                 hasError = true;
             }
 
             if (adviceInfo.PointcutThrownType != null)
             {
-                ILPPUtils.LogError("ASPECT1502", "AspectForUnity", $"Before advice method \"{adviceInfo.Method.FullName}\" cannot have PointcutThrown parameter.", adviceInfo.Method);
+                ILPPUtils.LogError("ASPECT1502", "AspectForUnity", $"After advice method \"{adviceInfo.Method.FullName}\" cannot have PointcutThrown parameter.", adviceInfo.Method);
                 hasError = true;
             }
 
@@ -4501,7 +4690,12 @@ namespace Katuusagi.AspectForUnity.Editor
                 }
             }
 
-            if (adviceInfo.PointcutThisType != null)
+            if (adviceInfo.PointcutThisType != null && !method.HasThis)
+            {
+                ILPPUtils.LogError("ASPECT2109", "AspectForUnity", $"PointcutThis cannot be used for static target method \"{method.FullName}\" in advice method \"{adviceInfo.Method.FullName}\".", adviceInfo.Method);
+                hasError = true;
+            }
+            else if (adviceInfo.PointcutThisType != null)
             {
                 var declaringType = method.DeclaringType;
                 if (!declaringType.IsCompatible(adviceInfo.PointcutThisType))
@@ -4569,7 +4763,7 @@ namespace Katuusagi.AspectForUnity.Editor
             {
                 if (!methodReturnType.IsCompatibleToByReference(pointcutReturnedByReferenceType))
                 {
-                    ILPPUtils.LogError("ASPECT2301", "AspectForUnity", $"Type mismatch for PointcutReturn parameter in AfterReturning advice method \"{adviceInfo.Method.FullName}\". Expected type: {method.ReturnType.FullName}, but found: {adviceInfo.PointcutReturnedType.FullName}.", adviceInfo.Method);
+                    ILPPUtils.LogError("ASPECT2301", "AspectForUnity", $"Type mismatch for PointcutReturned parameter in AfterReturning advice method \"{adviceInfo.Method.FullName}\". Expected type: {method.ReturnType.FullName}, but found: {adviceInfo.PointcutReturnedType.FullName}.", adviceInfo.Method);
                     hasError = true;
                 }
             }
@@ -4578,7 +4772,7 @@ namespace Katuusagi.AspectForUnity.Editor
                 if (pointcutReturnedType != null &&
                     !methodReturnType.IsCompatible(pointcutReturnedType))
                 {
-                    ILPPUtils.LogError("ASPECT2302", "AspectForUnity", $"Type mismatch for PointcutReturn parameter in AfterReturning advice method \"{adviceInfo.Method.FullName}\". Expected type: {method.ReturnType.FullName}, but found: {adviceInfo.PointcutReturnedType.FullName}.", adviceInfo.Method);
+                    ILPPUtils.LogError("ASPECT2302", "AspectForUnity", $"Type mismatch for PointcutReturned parameter in AfterReturning advice method \"{adviceInfo.Method.FullName}\". Expected type: {method.ReturnType.FullName}, but found: {adviceInfo.PointcutReturnedType.FullName}.", adviceInfo.Method);
                     hasError = true;
                 }
             }
@@ -4587,7 +4781,7 @@ namespace Katuusagi.AspectForUnity.Editor
                 returnedTypeOverride == null &&
                 !method.HasReturn())
             {
-                ILPPUtils.LogError("ASPECT2303", "AspectForUnity", $"AfterReturning advice method \"{adviceInfo.Method.FullName}\" cannot have PointcutReturn parameter when applied to void method \"{method.FullName}\".", adviceInfo.Method);
+                ILPPUtils.LogError("ASPECT2303", "AspectForUnity", $"AfterReturning advice method \"{adviceInfo.Method.FullName}\" cannot have PointcutReturned parameter when applied to void method \"{method.FullName}\".", adviceInfo.Method);
                 hasError = true;
             }
 

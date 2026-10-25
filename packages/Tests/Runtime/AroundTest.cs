@@ -1,6 +1,7 @@
 using Katuusagi.AspectForUnity.Tests.GlobalAssembly;
 using NUnit.Framework;
 using System;
+using System.Runtime.CompilerServices;
 
 namespace Katuusagi.AspectForUnity.Tests
 {
@@ -92,6 +93,16 @@ namespace Katuusagi.AspectForUnity.Tests
         }
 
         [Test]
+        public void ExceptionStackTraceIsPreserved()
+        {
+            var exception = Assert.Throws<InvalidOperationException>(() => StackTraceTarget());
+
+            Assert.AreEqual("stack-trace-test", exception.Message);
+            Assert.That(exception.StackTrace, Does.Contain(nameof(StackTraceMiddle)));
+            Assert.That(exception.StackTrace, Does.Contain(nameof(StackTraceLeaf)));
+        }
+
+        [Test]
         public void InstanceAndPointcutMetadataAreAvailable()
         {
             AroundInstanceAspect.ConstructorCount = 0;
@@ -102,6 +113,67 @@ namespace Katuusagi.AspectForUnity.Tests
             Assert.AreEqual(1, AroundInstanceAspect.ConstructorCount);
             Assert.AreEqual("Multiply:1", AroundInstanceAspect.ConstructorMetadata);
             CollectionAssert.AreEqual(new[] { "metadata:Multiply:AroundInstanceTarget:1:3" }, AroundTestAspects.Events);
+        }
+
+        [Test]
+        public void StructInstanceAroundCopiesBackChangesAndReturnValue()
+        {
+            var target = new AroundStructTarget();
+
+            Assert.AreEqual(4, target.AddAndReturn(4));
+            Assert.AreEqual(4, target.Value);
+        }
+
+        [Test]
+        public void StructInstanceAroundCopiesBackChangesOnExceptionAndPreservesStackTrace()
+        {
+            var target = new AroundStructTarget();
+
+            var exception = Assert.Throws<InvalidOperationException>(() => target.MutateThenThrow());
+
+            Assert.AreEqual("struct-target-test", exception.Message);
+            Assert.AreEqual(1, target.Value);
+            Assert.That(exception.StackTrace, Does.Contain(nameof(AroundStructTarget.MutateThenThrow)));
+        }
+
+        [Test]
+        public void StructInstanceAroundCopiesBackRefOutArgumentsAndReturnValue()
+        {
+            var target = new AroundStructTarget();
+            var value = 5;
+            int result;
+
+            var returned = target.MutateWithRefOut(ref value, out result);
+
+            Assert.AreEqual(2, target.Value);
+            Assert.AreEqual(8, value);
+            Assert.AreEqual(10, result);
+            Assert.AreEqual(10, returned);
+        }
+
+        [Test]
+        public void StructInstanceAroundCopiesBackRefOutArgumentsAndTargetOnException()
+        {
+            var target = new AroundStructTarget();
+            var value = 7;
+            var result = -1;
+            InvalidOperationException exception = null;
+
+            try
+            {
+                target.MutateWithRefOutThenThrow(ref value, out result);
+            }
+            catch (InvalidOperationException caught)
+            {
+                exception = caught;
+            }
+
+            Assert.IsNotNull(exception);
+            Assert.AreEqual("struct-ref-out-test", exception.Message);
+            Assert.AreEqual(4, target.Value);
+            Assert.AreEqual(12, value);
+            Assert.AreEqual(16, result);
+            Assert.That(exception.StackTrace, Does.Contain(nameof(AroundStructTarget.MutateWithRefOutThenThrow)));
         }
 
         [Test]
@@ -151,11 +223,61 @@ namespace Katuusagi.AspectForUnity.Tests
             throw new InvalidOperationException("target");
         }
 
+        public static void StackTraceTarget()
+        {
+            StackTraceMiddle();
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static void StackTraceMiddle()
+        {
+            StackTraceLeaf();
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static void StackTraceLeaf()
+        {
+            throw new InvalidOperationException("stack-trace-test");
+        }
+
         public static T GenericIdentity<T>(T value)
         {
             return value;
         }
 
+    }
+
+    public struct AroundStructTarget
+    {
+        public int Value;
+
+        public int AddAndReturn(int amount)
+        {
+            Value += amount;
+            return Value;
+        }
+
+        public int MutateThenThrow()
+        {
+            Value++;
+            throw new InvalidOperationException("struct-target-test");
+        }
+
+        public int MutateWithRefOut(ref int value, out int result)
+        {
+            Value += 2;
+            value += 3;
+            result = Value + value;
+            return result;
+        }
+
+        public int MutateWithRefOutThenThrow(ref int value, out int result)
+        {
+            Value += 4;
+            value += 5;
+            result = Value + value;
+            throw new InvalidOperationException("struct-ref-out-test");
+        }
     }
 
 }

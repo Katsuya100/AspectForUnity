@@ -103,6 +103,8 @@ after method
 
 ## アドバイスに設定するJoinPoint
 
+同一の対象メソッドに同じJoinPointのAdviceが複数適用される場合、Advice同士の相対的な実行順序はAspectForUnityのAPI仕様として保証されません。現在たまたま観測される順序は内部実装やバージョン変更によって変化する可能性があるため、仕様として扱ったり、他のAdviceとの相対順序に依存したりしないでください。これはAdvice同士の順序についての制約であり、`Before`や`After`などJoinPoint自体の意味が未定義という意味ではありません。複数の`Around` Adviceにも同様に適用されます。`Proceed()`は現在の内部順序に従って次のAround Adviceまたは対象メソッドを実行しますが、複数のAround Advice間のネスト順序は保証されません。バージョン更新で相対順序が変化しても、API仕様上の破壊的変更には当たりません。
+
 ### Before
 
 メソッド実行前に処理を挿入します。
@@ -144,7 +146,7 @@ public static void AfterReturningAdvice()
 
 ### AfterThrowing
 
-メソッドが例外をスローした後に処理を挿入します。
+メソッドが例外をスローした後に処理を挿入し、同じ例外を再スローします。`PointcutThrown`に派生例外型を指定した場合、その型に一致する例外に対してのみAdviceが実行されます。
 
 ```.cs
 [Advice(JoinPoint.AfterThrowing)]
@@ -186,10 +188,12 @@ public static void AroundAdvice([PointcutProceed] ProceedingContext<int> proceed
 
 `unsafeInjection: true`を指定すると、`UnsafeProceedingContext<T>`の書き込み可能な`ReturnValue`で結果を変更できます。
 
+Around Adviceでは、値型インスタンスの変更と`ref`/`out`引数への変更も保持されます。対象メソッドが正常終了した場合も例外をスローした場合も、変更が呼び出し元へ反映されます。
+
 ## Pointcut属性
 
 Pointcut属性は、Adviceメソッドが適用されるメソッドを指定します。  
-複数条件を設定でき、AND条件でマッチングされます。
+複数条件を設定でき、AND条件でマッチングされます。Adviceメソッドまたはその宣言型（外側の宣言型を含む）に指定できます。AspectForUnityがサポートするのは組み込みのフレームワーク属性です。これらを継承した独自属性や、`PointcutBase`を継承して独自に実装するPointcutはサポートされません。
 
 ### 直接指定Pointcut
 
@@ -204,6 +208,24 @@ Pointcut属性は、Adviceメソッドが適用されるメソッドを指定し
 | `GenericParameterNamePointcut` | ジェネリックパラメータ名。繰り返しインデックスに対応 |
 | `ParameterTypePointcut` | パラメータ型の名前または型。繰り返しインデックスに対応 |
 | `ReturnTypePointcut` | 戻り値型の名前または型 |
+
+`GenericParameterNamePointcut`と`ParameterTypePointcut`では、複数あるジェネリックパラメータまたはメソッドパラメータの中から、`repeatedIndex`で位置を指定できます。インデックスは0始まりで、負数は末尾から数えます。要素数を`N`とすると選択される位置は`((repeatedIndex % N) + N) % N`です。`N`が0の場合はマッチせず、要素数の範囲を超える値は循環して扱われます。
+
+要素が3つある場合の例:
+
+| `repeatedIndex` | 選択されるインデックス（0始まり） |
+| --- | --- |
+| 0 | 0 |
+| 1 | 1 |
+| 2 | 2 |
+| 3 | 0 |
+| 4 | 1 |
+| -1 | 2 |
+| -2 | 1 |
+| -3 | 0 |
+| -4 | 2 |
+
+これにより、正数で先頭側から、負数で末尾側から指定でき、要素数を超える値も循環して選択できます。より具体的・厳密なシグネチャ条件で対象を指定したい場合は`RegexPointcut`を利用できます。
 
 例えば、以下のように指定できます。
 
@@ -345,7 +367,7 @@ public static void BeforeAdvice([PointcutMethod] MethodBase method)
 
 #### PointcutParameters
 
-対象メソッドのパラメータを配列で取得します。
+対象メソッドのパラメータのスナップショットを`ParameterArray`で取得します。`ref`と`in`はAdvice開始時点の値を含み、未代入の`out`は`null`になります。`ParameterArray`はプールされた配列を参照する`readonly ref struct`です。Adviceの実行中だけ使用し、保持しないでください。
 
 ```.cs
 [Advice(JoinPoint.Before)]
@@ -360,6 +382,8 @@ public static void BeforeAdvice([PointcutParameters] ParameterArray parameters)
 
 対象メソッドの戻り値を取得します。  
 ※AfterReturningでのみ使用可能
+
+非同期メソッドに`AsyncExecutionSequence`スコープで適用した場合、`Task<T>`のタスクオブジェクトではなく、論理的な戻り値型`T`にバインドします。
 
 ```.cs
 [Advice(JoinPoint.AfterReturning)]
@@ -410,7 +434,7 @@ public static void GenericAdvice<[PointcutGenericBind(GenericBinding.ParameterTy
 |-------------|--------------------------|
 | GenericParameterName | ジェネリックパラメータ名でバインドする。<br/>デフォルト挙動。 |
 | ParameterType | パラメータの型として使われる場合に、暗黙的にバインドする。 |
-| ReturnType | 対象メソッドの戻り値型からジェネリック引数を推論する。 |
+| ReturnType | 対象メソッドの戻り値型からジェネリック引数を推論する。`AsyncExecutionSequence`スコープの非同期メソッドでは論理的な戻り値型を使用する。 |
 
 ## 高度な機能
 
@@ -430,7 +454,7 @@ public static void ModifyReturn(ref int parameter, [PointcutReturned] ref int re
 
 ### Adviceのスコープ
 
-Adviceのデフォルトは`AdviceScope.Invocation`で、メソッド呼び出しの境界ごとに適用されます。`AdviceScope.AsyncExecutionSequence`を指定すると、awaitやyieldによる中断・再開を含む1つの論理的な非同期実行シーケンスに対してAdviceを適用できます。
+Adviceのデフォルトは`AdviceScope.Invocation`で、メソッド呼び出しの境界ごとに適用されます。`AdviceScope.AsyncExecutionSequence`を指定すると、awaitやyieldによる中断・再開を含む1つの論理的な非同期実行シーケンスに対してAdviceを適用できます。イテレーターでは正常完了時に一度だけ`AfterReturning`が実行され、例外時には`AfterThrowing`が実行されます。`After`はどちらの場合も一度実行されます。非同期メソッドの`Before` Adviceが例外をスローした場合、その例外は呼び出し元へ同期的に投げられず、Faulted状態のTaskとして返されます。
 
 ```.cs
 [Advice(JoinPoint.Before, AdviceScope.AsyncExecutionSequence)]
@@ -475,7 +499,7 @@ public void NoLoggingMethod()
 ## パフォーマンスに関する注意
 
 - Pointcutの正規表現判定とIL書き換えはコンパイル時に行われ、実行時の正規表現判定やプロキシ呼び出しはありません
-- 実行時にはAdvice呼び出し自体のコストがあり、`PointcutMethod` は `MethodBase` の取得、`PointcutParameters` は引数のボックス化とプール配列への格納を伴います
+- 実行時にはAdvice呼び出し自体のコストがあり、`PointcutMethod` は `MethodBase` の取得、`PointcutParameters` は引数スナップショットのボックス化とプール配列への格納を伴います
 - ただし、多数のアスペクトを適用するとコンパイル時間が増加する可能性があります
 
 ## サンプル: パフォーマンス測定
@@ -535,6 +559,8 @@ public static class ExceptionHandlingAspect
 - **Mono.Cecil**: ILコードの読み取りと書き込みに使用
 - **属性ベースの設定**: アスペクトとアドバイスの定義に属性を使用
 - **対象Assembly**: `Katuusagi.AspectForUnity` を参照するAssemblyを処理
+
+`ProceedingRuntime`、`ProceedingStateBase`、`IProceedingState`、`ObjectArrayPool`、`ProceedingStatePool<T>`などのランタイム補助型は、生成ILとの互換性のためpublicのままですが、IDEの候補一覧には表示されません。ユーザーコードでは`ProceedingContext`、`UnsafeProceedingContext<T>`、`ParameterArray`を使用してください。
 
 ### Adviceの制約
 

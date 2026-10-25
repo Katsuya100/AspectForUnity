@@ -105,6 +105,8 @@ after method
 
 ## JoinPoint Settings for Advice
 
+When multiple advice methods with the same JoinPoint apply to the same target method, their relative execution order is not guaranteed by AspectForUnity's API contract. The order you happen to observe may change due to implementation details or between versions; do not treat it as specified behavior or make advice depend on the relative order of other advice. This concerns only the order among advice methods and does not make the semantics of JoinPoints such as `Before` and `After` unspecified. The same applies to multiple `Around` advice methods: `Proceed()` invokes the next Around advice or the target method according to the current internal ordering, but the nesting order among multiple Around advice methods is not guaranteed. A change in relative order between versions is not considered a breaking change.
+
 ### Before
 
 Insert processing before method execution.
@@ -188,10 +190,14 @@ public static void AroundAdvice([PointcutProceed] ProceedingContext<int> proceed
 
 With `unsafeInjection: true`, `UnsafeProceedingContext<T>` exposes a writable `ReturnValue` for modifying the result.
 
+Around advice also preserves mutations to value-type instance targets and `ref`/`out` arguments. These changes are copied back when the target returns or throws.
+
 ## Pointcut Attributes
 
 Pointcut attributes specify which methods the advice method will be applied to.  
 Multiple conditions can be set and are matched with AND conditions. Pointcuts may be placed on the advice method or on its declaring type, including enclosing declaring types.
+
+AspectForUnity supports its built-in framework attributes. Deriving custom attributes from them or implementing custom pointcuts by deriving from `PointcutBase` is not supported.
 
 ### Direct Pointcuts
 
@@ -206,6 +212,24 @@ The following pointcuts match method metadata without constructing a regular exp
 | `GenericParameterNamePointcut` | Generic parameter name; repeated indexes are supported |
 | `ParameterTypePointcut` | Parameter type name or type; repeated indexes are supported |
 | `ReturnTypePointcut` | Return type name or type |
+
+`GenericParameterNamePointcut` and `ParameterTypePointcut` accept a `repeatedIndex` to select an element from a repeated structure. Indexing is zero-based; negative values count from the end, and indexes wrap around when they exceed the number of elements. With `N` elements, the selected index is `((repeatedIndex % N) + N) % N`; when `N` is 0, the pointcut does not match.
+
+For a repeated structure with three elements:
+
+| `repeatedIndex` | Selected index (zero-based) |
+| --- | --- |
+| 0 | 0 |
+| 1 | 1 |
+| 2 | 2 |
+| 3 | 0 |
+| 4 | 1 |
+| -1 | 2 |
+| -2 | 1 |
+| -3 | 0 |
+| -4 | 2 |
+
+This lets you select from the beginning with non-negative values, from the end with negative values, and wrap indexes beyond the structure length. Use `RegexPointcut` when you need to target a more specific or exact signature condition.
 
 For example:
 
@@ -350,7 +374,7 @@ public static void BeforeAdvice([PointcutMethod] MethodBase method)
 
 #### PointcutParameters
 
-Obtain the target method's parameters as a `ParameterArray`, readable through `Length` and its indexer. It is a `readonly ref struct` over a pooled array; use it only during the advice call and do not retain it.
+Obtain a snapshot of the target method's parameters as a `ParameterArray`, readable through `Length` and its indexer. `ref` and `in` parameters contain their values at advice entry; an `out` parameter is represented as `null` because it has not been assigned yet. It is a `readonly ref struct` over a pooled array; use it only during the advice call and do not retain it.
 
 ```.cs
 [Advice(JoinPoint.Before)]
@@ -365,6 +389,8 @@ public static void BeforeAdvice([PointcutParameters] ParameterArray parameters)
 
 Obtain the target method's return value.  
 *Only valid with AfterReturning. It cannot be used on `void` methods, and its type must be compatible with the return type.
+
+For `AsyncExecutionSequence` advice on an async method, this binds to the logical result type (for example, `T` in `Task<T>`), not to the task object.
 
 ```.cs
 [Advice(JoinPoint.AfterReturning)]
@@ -415,7 +441,7 @@ public static void GenericAdvice<[PointcutGenericBind(GenericBinding.ParameterTy
 |-------------|-----------------------------|
 | GenericParameterName | Bind by generic parameter name.<br/>Default behavior. |
 | ParameterType | Infer the generic argument from its use in an ordinary advice parameter, `PointcutThis`, or `PointcutReturned`. No inferred type or multiple distinct inferred types is a compilation error. |
-| ReturnType | Infer the generic argument from the target method's return type. |
+| ReturnType | Infer the generic argument from the target method's return type; for async methods in `AsyncExecutionSequence`, this is the logical result type. |
 
 ## Advanced Features
 
@@ -435,7 +461,7 @@ public static void ModifyReturn(ref int parameter, [PointcutReturned] ref int re
 
 ### Advice Scope
 
-Advice uses `AdviceScope.Invocation` by default and is applied at each method invocation boundary. Use `AdviceScope.AsyncExecutionSequence` to apply advice to one logical asynchronous execution sequence, including await or yield suspension and resumption points.
+Advice uses `AdviceScope.Invocation` by default and is applied at each method invocation boundary. Use `AdviceScope.AsyncExecutionSequence` to apply advice to one logical asynchronous execution sequence, including await or yield suspension and resumption points. On iterators, `AfterReturning` runs once only after normal completion, `AfterThrowing` runs when iteration throws, and `After` runs once on either outcome. On async methods, an exception from `Before` advice becomes a faulted task.
 
 ```.cs
 [Advice(JoinPoint.Before, AdviceScope.AsyncExecutionSequence)]
@@ -479,7 +505,7 @@ It is also possible to disable aspect application for the entire Assembly with t
 ## Performance Considerations
 
 - Pointcut regex matching and IL rewriting happen at compile time, so runtime execution performs no regex matching or proxy dispatch
-- Runtime still pays for the advice calls themselves; `PointcutMethod` obtains a `MethodBase`, while `PointcutParameters` boxes arguments and stores them in a pooled array
+- Runtime still pays for the advice calls themselves; `PointcutMethod` obtains a `MethodBase`, while `PointcutParameters` boxes argument snapshots and stores them in a pooled array
 - However, applying many aspects may increase compilation time
 
 ## Sample: Performance Measurement
@@ -539,6 +565,8 @@ public static class ExceptionHandlingAspect
 - **Mono.Cecil**: Used for reading and writing IL code
 - **Attribute-based Configuration**: Uses attributes to define aspects and advice
 - **Target Assemblies**: Processes assemblies that reference `Katuusagi.AspectForUnity`
+
+Runtime support types such as `ProceedingRuntime`, `ProceedingStateBase`, `IProceedingState`, `ObjectArrayPool`, and `ProceedingStatePool<T>` remain public for generated IL compatibility but are hidden from IDE browsing. Use `ProceedingContext`, `UnsafeProceedingContext<T>`, and `ParameterArray` in user code.
 
 ### Advice Constraints
 

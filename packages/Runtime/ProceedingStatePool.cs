@@ -1,7 +1,10 @@
 using System.Collections.Generic;
+using System.ComponentModel;
 
 namespace Katuusagi.AspectForUnity
 {
+    // Kept public for runtime compatibility; generated IL does not call this helper and direct user use is not intended.
+    [EditorBrowsable(EditorBrowsableState.Never)]
     public static class ProceedingStatePool<T>
         where T : ProceedingStateBase, new()
     {

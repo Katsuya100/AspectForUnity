@@ -1,8 +1,11 @@
 using System;
+using System.ComponentModel;
 using System.Collections.Generic;
 
 namespace Katuusagi.AspectForUnity
 {
+    // Public because generated IL references these runtime entry points; direct user use is not intended.
+    [EditorBrowsable(EditorBrowsableState.Never)]
     public static class ProceedingRuntime
     {
         [ThreadStatic]

@@ -145,6 +145,34 @@ namespace Katuusagi.AspectForUnity.Tests
             context.Proceed();
             Events.Add($"generic-result:{context.ReturnValue}");
         }
+
+        [Advice(JoinPoint.Around)]
+        [RegexPointcut("^Katuusagi\\.AspectForUnity\\.Tests\\.AroundTest::StackTraceTarget$", PointcutNameFlag.TypeFullName | PointcutNameFlag.DeclaringTypeName | PointcutNameFlag.MethodName)]
+        public static void StackTraceAroundA([PointcutProceed] ProceedingContext proceed)
+        {
+            proceed.Proceed();
+        }
+
+        [Advice(JoinPoint.Around)]
+        [RegexPointcut("^Katuusagi\\.AspectForUnity\\.Tests\\.AroundTest::StackTraceTarget$", PointcutNameFlag.TypeFullName | PointcutNameFlag.DeclaringTypeName | PointcutNameFlag.MethodName)]
+        public static void StackTraceAroundB([PointcutProceed] ProceedingContext proceed)
+        {
+            proceed.Proceed();
+        }
+
+        [Advice(JoinPoint.Around)]
+        [RegexPointcut("^Katuusagi\\.AspectForUnity\\.Tests\\.AroundStructTarget::(AddAndReturn|MutateThenThrow|MutateWithRefOut|MutateWithRefOutThenThrow)$", PointcutNameFlag.TypeFullName | PointcutNameFlag.DeclaringTypeName | PointcutNameFlag.MethodName)]
+        public static void StructAroundA([PointcutProceed] ProceedingContext<int> context)
+        {
+            context.Proceed();
+        }
+
+        [Advice(JoinPoint.Around)]
+        [RegexPointcut("^Katuusagi\\.AspectForUnity\\.Tests\\.AroundStructTarget::(AddAndReturn|MutateThenThrow|MutateWithRefOut|MutateWithRefOutThenThrow)$", PointcutNameFlag.TypeFullName | PointcutNameFlag.DeclaringTypeName | PointcutNameFlag.MethodName)]
+        public static void StructAroundB([PointcutProceed] ProceedingContext<int> context)
+        {
+            context.Proceed();
+        }
     }
 
 }

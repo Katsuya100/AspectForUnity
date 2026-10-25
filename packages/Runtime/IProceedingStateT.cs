@@ -1,6 +1,9 @@
+using System.ComponentModel;
+
 namespace Katuusagi.AspectForUnity
 {
-    // This interface is consumed by generated IL; it is not exposed by advice signatures.
+    // Public because generated state types implement it; it is not a user-facing advice API.
+    [EditorBrowsable(EditorBrowsableState.Never)]
     public interface IProceedingState<T>
     {
         ref T GetReturnValue();

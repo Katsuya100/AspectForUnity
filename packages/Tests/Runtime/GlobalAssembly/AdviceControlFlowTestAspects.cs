@@ -102,4 +102,66 @@ namespace Katuusagi.AspectForUnity.Tests.GlobalAssembly
             InstanceType = instance.GetType().Name;
         }
     }
+
+    [Aspect]
+    public static class AfterThrowingOnlyAspect
+    {
+        private const string Pattern =
+            "^Katuusagi\\.AspectForUnity\\.Tests\\.AdviceControlFlowTest::" +
+            "(AfterThrowingOnlyVoid|AfterThrowingOnlyInt|AfterThrowingOnlyMultipleReturns|AfterThrowingOnlyThrows)$";
+
+        public static int Count;
+        public static Exception LastException;
+
+        public static void Reset()
+        {
+            Count = 0;
+            LastException = null;
+        }
+
+        [Advice(JoinPoint.AfterThrowing)]
+        [RegexPointcut(Pattern, PointcutNameFlag.TypeFullName | PointcutNameFlag.DeclaringTypeName | PointcutNameFlag.MethodName)]
+        public static void AfterThrowing([PointcutThrown] Exception exception)
+        {
+            Count++;
+            LastException = exception;
+        }
+    }
+
+    [Aspect]
+    public static class PointcutParametersAspect
+    {
+        private const string Pattern =
+            "^Katuusagi\\.AspectForUnity\\.Tests\\.AdviceControlFlowTest::" +
+            "(PointcutParametersTarget|PointcutParametersThrowingTarget)$";
+
+        public static int Count;
+        public static object[] Snapshot;
+        public static bool ThrowNext;
+
+        public static void Reset()
+        {
+            Count = 0;
+            Snapshot = null;
+            ThrowNext = false;
+        }
+
+        [Advice(JoinPoint.Before)]
+        [RegexPointcut(Pattern, PointcutNameFlag.TypeFullName | PointcutNameFlag.DeclaringTypeName | PointcutNameFlag.MethodName)]
+        public static void Before([PointcutParameters] ParameterArray parameters)
+        {
+            Count++;
+            Snapshot = new object[parameters.Length];
+            for (int i = 0; i < parameters.Length; i++)
+            {
+                Snapshot[i] = parameters[i];
+            }
+
+            if (ThrowNext)
+            {
+                ThrowNext = false;
+                throw new InvalidOperationException("pointcut-parameters-advice-failure");
+            }
+        }
+    }
 }

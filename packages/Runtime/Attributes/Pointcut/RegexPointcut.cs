@@ -3,6 +3,10 @@ using System.Text.RegularExpressions;
 
 namespace Katuusagi.AspectForUnity
 {
+    /// <summary>Matches a pointcut name with a regular expression.</summary>
+    /// <remarks>
+    /// Deriving custom framework attributes from this type is not supported by AspectForUnity. The IL post-processor does not guarantee recognition of derived attribute types.
+    /// </remarks>
     [AttributeUsage(AttributeTargets.Class | AttributeTargets.Method | AttributeTargets.Constructor, AllowMultiple = true)]
     public class RegexPointcut: PointcutBase
     {

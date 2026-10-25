@@ -149,6 +149,118 @@ namespace Katuusagi.AspectForUnity.Tests
         }
 
         [Test]
+        public void AfterThrowingOnlyAdvicePreservesNormalVoidAndReturnPaths()
+        {
+            AfterThrowingOnlyAspect.Reset();
+
+            AfterThrowingOnlyVoid();
+            Assert.AreEqual(13, AfterThrowingOnlyInt());
+            Assert.AreEqual(-1, AfterThrowingOnlyMultipleReturns(-1));
+            Assert.AreEqual(0, AfterThrowingOnlyMultipleReturns(0));
+            Assert.AreEqual(8, AfterThrowingOnlyMultipleReturns(4));
+
+            Assert.AreEqual(0, AfterThrowingOnlyAspect.Count);
+            Assert.IsNull(AfterThrowingOnlyAspect.LastException);
+        }
+
+        [Test]
+        public void AfterThrowingOnlyAdviceRunsOnceAndPreservesOriginalException()
+        {
+            AfterThrowingOnlyAspect.Reset();
+
+            var exception = Assert.Throws<InvalidOperationException>(AfterThrowingOnlyThrows);
+
+            Assert.AreEqual("after-throwing-only-target", exception.Message);
+            Assert.AreSame(exception, AfterThrowingOnlyAspect.LastException);
+            Assert.AreEqual(1, AfterThrowingOnlyAspect.Count);
+        }
+
+        [Test]
+        public void PointcutParametersSnapshotByReferenceArgumentsAndPreservesOutWriteback()
+        {
+            PointcutParametersAspect.Reset();
+            var refInt = 10;
+            var refString = "entry";
+            var inInt = 20;
+            var outInt = -1;
+
+            var result = PointcutParametersTarget(5, ref refInt, ref refString, in inInt, out outInt);
+
+            Assert.AreEqual(41, result);
+            Assert.AreEqual(11, refInt);
+            Assert.AreEqual("entry-target", refString);
+            Assert.AreEqual(25, outInt);
+            Assert.AreEqual(1, PointcutParametersAspect.Count);
+            CollectionAssert.AreEqual(
+                new object[] { 5, 10, "entry", 20, null },
+                PointcutParametersAspect.Snapshot);
+        }
+
+        [Test]
+        public void PointcutParametersCleanupRemainsUsableAfterAdviceException()
+        {
+            PointcutParametersAspect.Reset();
+            PointcutParametersAspect.ThrowNext = true;
+
+            var exception = Assert.Throws<InvalidOperationException>(
+                () => PointcutParametersThrowingTarget(3));
+
+            Assert.AreEqual("pointcut-parameters-advice-failure", exception.Message);
+            Assert.AreEqual(1, PointcutParametersAspect.Count);
+            CollectionAssert.AreEqual(new object[] { 3 }, PointcutParametersAspect.Snapshot);
+
+            Assert.AreEqual(9, PointcutParametersThrowingTarget(9));
+            Assert.AreEqual(2, PointcutParametersAspect.Count);
+            CollectionAssert.AreEqual(new object[] { 9 }, PointcutParametersAspect.Snapshot);
+        }
+
+        public static void AfterThrowingOnlyVoid()
+        {
+        }
+
+        public static int AfterThrowingOnlyInt()
+        {
+            return 13;
+        }
+
+        public static int AfterThrowingOnlyMultipleReturns(int value)
+        {
+            if (value < 0)
+            {
+                return -1;
+            }
+
+            if (value == 0)
+            {
+                return 0;
+            }
+
+            return value * 2;
+        }
+
+        public static void AfterThrowingOnlyThrows()
+        {
+            throw new InvalidOperationException("after-throwing-only-target");
+        }
+
+        public static int PointcutParametersTarget(int normal,
+                                                   ref int refInt,
+                                                   ref string refString,
+                                                   in int inInt,
+                                                   out int outInt)
+        {
+            refInt++;
+            refString += "-target";
+            outInt = normal + inInt;
+            return refInt + outInt + normal;
+        }
+
+        public static int PointcutParametersThrowingTarget(int value)
+        {
+            return value;
+        }
+
+        [Test]
         public void ConstructorPointcutThisSeesConstructedInstance()
         {
             ConstructorPointcutAspect.Reset();

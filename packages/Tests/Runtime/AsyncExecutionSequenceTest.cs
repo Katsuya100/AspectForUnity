@@ -69,6 +69,25 @@ namespace Katuusagi.AspectForUnity.Tests
         }
 
         [Test]
+        public void AsyncGenericBindingsUseLogicalReturnAndExistingBindings()
+        {
+            AsyncExecutionSequenceTestAspect.Reset();
+
+            Assert.AreEqual(29, AsyncReturnTypeInt().GetAwaiter().GetResult());
+            Assert.AreEqual("logical-result", AsyncReturnTypeString().GetAwaiter().GetResult());
+            Assert.AreEqual(31, AsyncGenericParameterName(31).GetAwaiter().GetResult());
+            Assert.AreEqual(37, AsyncParameterTypeBinding(37).GetAwaiter().GetResult());
+
+            CollectionAssert.AreEquivalent(
+                new[] { "AsyncReturnTypeInt:System.Int32:29", "AsyncReturnTypeString:System.String:logical-result" },
+                AsyncExecutionSequenceTestAspect.ReturnTypeBindingResults);
+            Assert.AreEqual(1, AsyncExecutionSequenceTestAspect.GenericParameterNameBindingCount);
+            Assert.AreEqual("System.Int32:31", AsyncExecutionSequenceTestAspect.GenericParameterNameBindingResult);
+            Assert.AreEqual(1, AsyncExecutionSequenceTestAspect.ParameterTypeBindingCount);
+            Assert.AreEqual("System.Int32:37", AsyncExecutionSequenceTestAspect.ParameterTypeBindingResult);
+        }
+
+        [Test]
         public void AsyncThrowingAdviceRunsAtLogicalFailure()
         {
             AsyncExecutionSequenceTestAspect.Reset();
@@ -234,11 +253,156 @@ namespace Katuusagi.AspectForUnity.Tests
             Assert.AreEqual(1, AsyncExecutionSequenceTestAspect.CoroutineAfterCount);
         }
 
+        [Test]
+        public void IteratorAfterRunsOnceOnNormalAndExceptionalCompletion()
+        {
+            AsyncExecutionSequenceTestAspect.Reset();
+
+            var normal = CoroutineAfterOnlyNormal();
+            Assert.IsTrue(normal.MoveNext());
+            Assert.AreEqual(0, AsyncExecutionSequenceTestAspect.IteratorAfterOnlyCount);
+            Assert.IsFalse(normal.MoveNext());
+            Assert.AreEqual(1, AsyncExecutionSequenceTestAspect.IteratorAfterOnlyCount);
+            Assert.IsFalse(normal.MoveNext());
+            Assert.AreEqual(1, AsyncExecutionSequenceTestAspect.IteratorAfterOnlyCount);
+
+            AsyncExecutionSequenceTestAspect.Reset();
+            var exceptional = CoroutineAfterOnlyFailure();
+            Assert.IsTrue(exceptional.MoveNext());
+            Assert.AreEqual(0, AsyncExecutionSequenceTestAspect.IteratorAfterOnlyCount);
+            var exception = Assert.Throws<InvalidOperationException>(() => exceptional.MoveNext());
+            Assert.AreEqual("iterator-after-failure", exception.Message);
+            Assert.AreEqual(1, AsyncExecutionSequenceTestAspect.IteratorAfterOnlyCount);
+        }
+
+        [Test]
+        public void IteratorAfterThrowingAndAfterRunOnceAndRethrowOriginalException()
+        {
+            AsyncExecutionSequenceTestAspect.Reset();
+            var originalException = new InvalidOperationException("iterator-after-throwing-failure");
+            IteratorAfterThrowingException = originalException;
+
+            var enumerator = CoroutineAfterThrowingFailure();
+            Assert.IsTrue(enumerator.MoveNext());
+            var exception = Assert.Throws<InvalidOperationException>(() => enumerator.MoveNext());
+
+            Assert.AreSame(originalException, exception);
+            Assert.AreEqual("iterator-after-throwing-failure", exception.Message);
+            Assert.AreEqual(1, AsyncExecutionSequenceTestAspect.IteratorAfterThrowingCount);
+            Assert.AreEqual(1, AsyncExecutionSequenceTestAspect.IteratorAfterThrowingAfterCount);
+        }
+
+        [Test]
+        public void IteratorAfterReturningRunsOnceOnlyAfterNormalCompletion()
+        {
+            AsyncExecutionSequenceTestAspect.Reset();
+
+            var enumerator = CoroutineAfterReturning();
+            Assert.IsTrue(enumerator.MoveNext());
+            Assert.AreEqual(0, AsyncExecutionSequenceTestAspect.IteratorAfterReturningCount);
+            Assert.AreEqual(0, AsyncExecutionSequenceTestAspect.IteratorAfterReturningAfterCount);
+            Assert.IsTrue(enumerator.MoveNext());
+            Assert.AreEqual(0, AsyncExecutionSequenceTestAspect.IteratorAfterReturningCount);
+            Assert.IsFalse(enumerator.MoveNext());
+
+            Assert.AreEqual(1, AsyncExecutionSequenceTestAspect.IteratorAfterReturningCount);
+            Assert.AreEqual(1, AsyncExecutionSequenceTestAspect.IteratorAfterReturningAfterCount);
+            CollectionAssert.AreEqual(
+                new[] { "after-returning", "after" },
+                AsyncExecutionSequenceTestAspect.IteratorCompletionEvents);
+
+            Assert.IsFalse(enumerator.MoveNext());
+            Assert.AreEqual(1, AsyncExecutionSequenceTestAspect.IteratorAfterReturningCount);
+            Assert.AreEqual(1, AsyncExecutionSequenceTestAspect.IteratorAfterReturningAfterCount);
+        }
+
+        [Test]
+        public void IteratorAfterReturningExceptionStillRunsAfter()
+        {
+            AsyncExecutionSequenceTestAspect.Reset();
+            var originalException = new InvalidOperationException("iterator-after-returning-advice-failure");
+            AsyncExecutionSequenceTestAspect.IteratorAfterReturningException = originalException;
+            IteratorAfterReturningThrowsBodyCompleted = 0;
+
+            var enumerator = CoroutineAfterReturningThrows();
+            Assert.IsTrue(enumerator.MoveNext());
+            var exception = Assert.Throws<InvalidOperationException>(() => enumerator.MoveNext());
+
+            Assert.AreSame(originalException, exception);
+            Assert.AreEqual("iterator-after-returning-advice-failure", exception.Message);
+            Assert.AreEqual(1, IteratorAfterReturningThrowsBodyCompleted);
+            Assert.AreEqual(1, AsyncExecutionSequenceTestAspect.IteratorAfterReturningCount);
+            Assert.AreEqual(1, AsyncExecutionSequenceTestAspect.IteratorAfterReturningAfterCount);
+            CollectionAssert.AreEqual(
+                new[] { "after-returning", "after" },
+                AsyncExecutionSequenceTestAspect.IteratorCompletionEvents);
+
+            Assert.IsFalse(enumerator.MoveNext());
+            Assert.AreEqual(1, AsyncExecutionSequenceTestAspect.IteratorAfterReturningCount);
+            Assert.AreEqual(1, AsyncExecutionSequenceTestAspect.IteratorAfterReturningAfterCount);
+        }
+
+        [Test]
+        public void IteratorAfterReturningDoesNotRunOnException()
+        {
+            AsyncExecutionSequenceTestAspect.Reset();
+
+            var enumerator = CoroutineAfterReturningFailure();
+            Assert.IsTrue(enumerator.MoveNext());
+            var exception = Assert.Throws<InvalidOperationException>(() => enumerator.MoveNext());
+
+            Assert.AreEqual("iterator-returning-failure", exception.Message);
+            Assert.AreEqual(0, AsyncExecutionSequenceTestAspect.IteratorAfterReturningCount);
+            Assert.AreEqual(1, AsyncExecutionSequenceTestAspect.IteratorAfterReturningAfterCount);
+        }
+
+        [Test]
+        public void AsyncBeforeExceptionIsReturnedAsFaultedTask()
+        {
+            AsyncExecutionSequenceTestAspect.Reset();
+            Task<int> task = null;
+
+            Assert.DoesNotThrow(() =>
+            {
+                task = AsyncBeforeFailure();
+            });
+
+            Assert.IsNotNull(task);
+            Assert.IsTrue(task.IsFaulted);
+            var exception = Assert.Throws<InvalidOperationException>(() => task.GetAwaiter().GetResult());
+            Assert.AreEqual("async-before-failure", exception.Message);
+            Assert.AreEqual(1, AsyncExecutionSequenceTestAspect.AsyncBeforeFailureCount);
+        }
+
         public async Task<int> AsyncSuccess()
         {
             await Task.Delay(1).ConfigureAwait(false);
             await Task.Delay(1).ConfigureAwait(false);
             return 7;
+        }
+
+        public async Task<int> AsyncReturnTypeInt()
+        {
+            await Task.Delay(1).ConfigureAwait(false);
+            return 29;
+        }
+
+        public async Task<string> AsyncReturnTypeString()
+        {
+            await Task.Delay(1).ConfigureAwait(false);
+            return "logical-result";
+        }
+
+        public async Task<T> AsyncGenericParameterName<T>(T value)
+        {
+            await Task.Delay(1).ConfigureAwait(false);
+            return value;
+        }
+
+        public async Task<int> AsyncParameterTypeBinding(int value)
+        {
+            await Task.Delay(1).ConfigureAwait(false);
+            return value;
         }
 
         public async Task<int> AsyncPointcutParameters(int value, string text)
@@ -322,6 +486,51 @@ namespace Katuusagi.AspectForUnity.Tests
         {
             yield return null;
             yield return null;
+        }
+
+        public IEnumerator CoroutineAfterOnlyNormal()
+        {
+            yield return null;
+        }
+
+        public IEnumerator CoroutineAfterOnlyFailure()
+        {
+            yield return null;
+            throw new InvalidOperationException("iterator-after-failure");
+        }
+
+        public IEnumerator CoroutineAfterThrowingFailure()
+        {
+            yield return null;
+            throw IteratorAfterThrowingException;
+        }
+
+        public static InvalidOperationException IteratorAfterThrowingException;
+
+        public IEnumerator CoroutineAfterReturning()
+        {
+            yield return null;
+            yield return null;
+        }
+
+        public IEnumerator CoroutineAfterReturningFailure()
+        {
+            yield return null;
+            throw new InvalidOperationException("iterator-returning-failure");
+        }
+
+        public IEnumerator CoroutineAfterReturningThrows()
+        {
+            yield return null;
+            IteratorAfterReturningThrowsBodyCompleted++;
+        }
+
+        public static int IteratorAfterReturningThrowsBodyCompleted;
+
+        public async Task<int> AsyncBeforeFailure()
+        {
+            await Task.Delay(1).ConfigureAwait(false);
+            return 19;
         }
     }
 }

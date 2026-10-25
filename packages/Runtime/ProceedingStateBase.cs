@@ -1,8 +1,11 @@
 using System;
+using System.ComponentModel;
 using System.Collections.Generic;
 
 namespace Katuusagi.AspectForUnity
 {
+    // Public because generated state types derive from it; direct user use is not intended.
+    [EditorBrowsable(EditorBrowsableState.Never)]
     public abstract class ProceedingStateBase
     {
         private readonly HashSet<int> _proceededSlots = new HashSet<int>();
